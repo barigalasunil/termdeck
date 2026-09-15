@@ -1,6 +1,6 @@
 {
   "name": "termdeck-cli",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "A terminal dashboard for your local dev projects: start dev servers with in-app logs, open your editor, or launch a coding agent in a fresh terminal window.",
   "keywords": [
     "cli",
