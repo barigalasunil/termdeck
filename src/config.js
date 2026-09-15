@@ -497,38 +497,15 @@ async function askDetails(selected, existing) {
       },
     ]);
 
-    const { port } = await inquirer.prompt([
-      {
-        type: 'number',
-        name: 'port',
-        message: `${step} ${name} \u2014 dev server port:`,
-        default: prev.port || 3000,
-        validate: (input) => {
-          if (input === undefined || input === null || input === '') return 'Please enter a port number.';
-          const n = Number(input);
-          return Number.isInteger(n) && n > 0 && n < 65536 ? true : `Not a valid port: ${input}`;
-        },
-      },
-    ]);
-
-    const { packageManager } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'packageManager',
-        message: `${step} ${name} \u2014 package manager:`,
-        choices: ['npm', 'pnpm', 'yarn'],
-        default: prev.packageManager || detectPackageManager(projectPath),
-      },
-    ]);
-
     projects.push({
       name,
       path: projectPath,
       // Do not lose per-project overrides from a previous config.
       ...pickOverrides(prev),
       status,
-      port: Number(port),
-      packageManager,
+      // Zero-friction: both auto-detected, never asked.
+      port: detectPort(projectPath),
+      packageManager: detectPackageManager(projectPath),
     });
   }
 
