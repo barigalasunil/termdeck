@@ -41,6 +41,56 @@ npx termdeck-cli
 
 > **Note:** Requires Node.js 16+ and a real terminal (macOS/Linux Terminal, Windows Terminal, iTerm, etc.). No Docker, no daemon, no background service.
 
+### Auto-Updates
+
+On every dashboard launch termdeck silently checks the npm registry for a newer version. When one exists it installs `termdeck-cli@latest` in the background — no confirmation, no restart, nothing to do. Offline, slow or unreachable registries are ignored: you simply keep running the installed version.
+
+Disable the check on an individual run with:
+
+```bash
+termdeck --no-update
+```
+
+### Manual Upgrade
+
+Auto-update covers most users, but you can always upgrade by hand:
+
+```bash
+npm update -g termdeck-cli
+# or, to force the very latest release:
+npm install -g termdeck-cli@latest
+```
+
+### Check the Installed Version
+
+```bash
+termdeck --version
+# or inspect the global install directly
+npm list -g termdeck-cli
+```
+
+---
+
+## 🗑️ Uninstall
+
+To completely remove termdeck from your system:
+
+```bash
+npm uninstall -g termdeck-cli
+```
+
+This removes the global package and the `termdeck` command.
+Your project configuration at `~/.termdeck-config.json` is preserved.
+To delete the config file as well:
+
+```bash
+# macOS/Linux
+rm ~/.termdeck-config.json
+
+# Windows PowerShell
+Remove-Item ~\.termdeck-config.json
+```
+
 ---
 
 ## 🚀 First Run & Configuration
@@ -100,6 +150,16 @@ Every later launch skips straight to the dashboard. Re-run the setup any time wi
 
 ---
 
+## ❓ FAQ
+
+**How do I disable auto-updates?**
+Pass `--no-update` when you launch the dashboard: `termdeck --no-update`. The npm registry is then never contacted and nothing is printed.
+
+**Why does termdeck check for updates on launch?**
+It ensures you always have the latest features and bug fixes without ever running an upgrade command. The check is fire-and-forget: it is capped at two seconds, runs in the background, and only ever shows a single short notice when an update is actually being installed.
+
+---
+
 ## 🛠️ Development & Contributing
 
 ### Local Testing
@@ -115,9 +175,40 @@ termdeck        # runs from anywhere with your edits live
 ### Running Tests
 
 ```bash
-npm test        # unit + end-to-end dev server tests (25/25 passing ✅)
+npm test        # unit + end-to-end dev server tests (31/31 passing ✅)
 npm run smoke   # headless TUI smoke test
 ```
+
+### Testing Auto-Updates
+
+The updater reads its registry endpoint from `TERMDECK_REGISTRY_URL`, so you can point it at a local mock. In one terminal, serve a fake registry that always claims a newer version:
+
+```bash
+node -e "require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end(JSON.stringify({version:'9.9.9'}))}).listen(4873)"
+```
+
+Then run termdeck with the mock enabled — you should see the "Checking for updates" banner, the dashboard footer toast, and the detached `npm install -g termdeck-cli@latest` in the background:
+
+```bash
+# macOS/Linux
+TERMDECK_REGISTRY_URL=http://127.0.0.1:4873/termdeck-cli/latest termdeck
+
+# Windows PowerShell
+$env:TERMDECK_REGISTRY_URL="http://127.0.0.1:4873/termdeck-cli/latest"; termdeck
+```
+
+> The install always targets `@latest` on the **real** npm registry. Set the mock to your current version (e.g. `{"version":"1.0.3"}`) to exercise the "already up to date, no install" path, or use `--no-update` to skip the check entirely.
+
+### Releasing a Version
+
+```bash
+npm version patch    # 1.0.3 -> 1.0.4 (bug fixes)
+npm version minor    # adds backwards-compatible features
+npm version major    # breaking changes
+npm publish
+```
+
+Publishing a higher version is what triggers the auto-update for everyone already using termdeck.
 
 ### Unlink When Done
 

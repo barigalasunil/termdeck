@@ -1,0 +1,39 @@
+{
+  "name": "termdeck-cli",
+  "version": "1.0.3",
+  "description": "A terminal dashboard for your local dev projects: start dev servers with in-app logs, open your editor, or launch a coding agent in a fresh terminal window.",
+  "keywords": [
+    "cli",
+    "tui",
+    "dashboard",
+    "blessed",
+    "blessed-contrib",
+    "dev-server",
+    "projects"
+  ],
+  "license": "MIT",
+  "main": "src/index.js",
+  "bin": {
+    "termdeck": "bin/termdeck.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "scripts": {
+    "start": "node bin/termdeck.js",
+    "test": "node test/run.js",
+    "smoke": "node test/smoke.js"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.11.0",
+    "cross-spawn": "^7.0.3",
+    "inquirer": "^8.2.6",
+    "open": "^8.4.2"
+  }
+}

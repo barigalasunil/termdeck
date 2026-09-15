@@ -1,0 +1,9 @@
+{
+  "name": "fake-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Fixture project used by termdeck's tests: pretends to be a dev server.",
+  "scripts": {
+    "dev": "node dev.js"
+  }
+}
