@@ -1,13 +1,30 @@
 <div align="center">
 
-# 🖥️ TermDeck
+# 🖥️ termdeck
 
-**A beautiful, terminal-based project dashboard to manage your local dev environments, servers, and coding tools.**
+**A beautiful, terminal-based project dashboard to manage your local dev environments, services, and AI coding agents.**
 
-[![npm version](https://img.shields.io/npm/v/termdeck-cli.svg)](https://www.npmjs.com/package/termdeck-cli)
-[![license](https://img.shields.io/npm/l/termdeck-cli.svg)](https://github.com/barigalasunil/termdeck/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/termdeck.svg)](https://www.npmjs.com/package/termdeck)
+[![license](https://img.shields.io/npm/l/termdeck.svg)](https://github.com/barigalasunil/termdeck/blob/main/LICENSE)
 
-![termdeck demo](./assets/demo.gif)
+```
++----------------------------------------------------------------------+
+| termdeck   14 projects · ~/dev/projects     ● 2 dev servers running   |
++------------------------+---------------------------------------------+
+| projects               | selected project                            |
+| ● api      [live]      | alpha   ● live                              |
+| ● alpha    [live]      | ~/dev/projects/alpha   main · 8a2f1 (2d ago)|
+| ○ blog     [exp]       | marketing site                              |
+| ○ lab      [scrap]     | ● dev server running (pid 8123) → localhost |
+|                        | cpu 3.2% · mem 214MB                       |
++------------------------+---------------------------------------------+
+| dev [r]  status [s]  search [/]  ...                                |
++------------------------+---------------------------------------------+
+| dev server logs                                                      |
+| 12:04:11 alpha [termdeck] $npm run dev                                |
+| 12:04:12 alpha ➜ Local: http://localhost:5173                       |
++----------------------------------------------------------------------+
+```
 
 </div>
 
@@ -15,11 +32,12 @@
 
 ## ✨ Features
 
-- 🎯 **Centralized Dashboard** — View all your projects, their status (Live, Working, Experimental, Pending), and paths in one place.
-- ⚡ **In-Terminal Dev Servers** — Run `npm run dev` and stream the logs directly inside the dashboard without losing your terminal context. Auto-opens the browser.
-- 🚀 **One-Click External Tools** — Instantly open your project in VS Code or your preferred AI Coding Agent (like OpenCode/Cursor) in a brand new terminal window.
-- ️ **Mouse & Keyboard Support** — Fully navigable with mouse clicks, Tab/Shift+Tab focus cycling, and intuitive keyboard shortcuts.
-- 💾 **Persistent Config** — First-run interactive setup saves your preferences to `~/.termdeck-config.json`. No setup needed on subsequent launches.
+- 🎯 **Centralized Dashboard** — See every project, its status (live, exp, pend, scrap), git state (branch, last commit), current process stats, and dev server state in one place.
+- ⚡ **In-Terminal Dev Servers** — Run `npm run dev` and stream the logs inside the dashboard. Auto-opens the browser. **Crash recovery** restarts a dead server up to 3 times.
+- 🚀 **One-Click External Tools** — Launch your editor or an AI coding agent (claude, codex, opencode, freebuff, kilocode) in a new terminal window, with agent logs tailed back into the dashboard.
+- 🔎 **Live Search & Filtering** — Type `/` to search projects by name; press `1`–`5` to filter by status chip.
+- ️ **Mouse & Keyboard Support** — Fully navigable with mouse clicks, Tab/Shift+Tab focus cycling, and keyboard shortcuts.
+- 💾 **Persistent, Self-Healing Config** — Interactive first-run setup saves `~/.termdeck-config.json`; the `--scan` wizard merges new projects without losing your custom agent configs.
 
 ---
 
@@ -28,22 +46,22 @@
 ### Global Install (Recommended)
 
 ```bash
-npm install -g termdeck-cli
+npm install -g termdeck
 ```
 
-This allows you to run `termdeck` from anywhere.
+This installs the `termdeck` command anywhere.
 
 ### One-Off Run
 
 ```bash
-npx termdeck-cli
+npx termdeck
 ```
 
 > **Note:** Requires Node.js 16+ and a real terminal (macOS/Linux Terminal, Windows Terminal, iTerm, etc.). No Docker, no daemon, no background service.
 
 ### Auto-Updates
 
-On every dashboard launch termdeck silently checks the npm registry for a newer version. When one exists it installs `termdeck-cli@latest` in the background — no confirmation, no restart, nothing to do. Offline, slow or unreachable registries are ignored: you simply keep running the installed version.
+On every dashboard launch termdeck silently checks the npm registry for a newer version. When one exists it installs `termdeck@latest` in the background — no confirmation, no restart. Offline, slow or unreachable registries are ignored: you simply keep running the installed version.
 
 Disable the check on an individual run with:
 
@@ -53,12 +71,10 @@ termdeck --no-update
 
 ### Manual Upgrade
 
-Auto-update covers most users, but you can always upgrade by hand:
-
 ```bash
-npm update -g termdeck-cli
+npm update -g termdeck
 # or, to force the very latest release:
-npm install -g termdeck-cli@latest
+npm install -g termdeck@latest
 ```
 
 ### Check the Installed Version
@@ -66,7 +82,7 @@ npm install -g termdeck-cli@latest
 ```bash
 termdeck --version
 # or inspect the global install directly
-npm list -g termdeck-cli
+npm list -g termdeck
 ```
 
 ---
@@ -76,7 +92,7 @@ npm list -g termdeck-cli
 To completely remove termdeck from your system:
 
 ```bash
-npm uninstall -g termdeck-cli
+npm uninstall -g termdeck
 ```
 
 This removes the global package and the `termdeck` command.
@@ -95,58 +111,56 @@ Remove-Item ~\.termdeck-config.json
 
 ## 🚀 First Run & Configuration
 
-The first launch asks a few questions and remembers the answers in `~/.termdeck-config.json`:
+On first launch termdeck detects that no `~/.termdeck-config.json` exists and runs an interactive setup wizard:
 
-1. **Which directory holds your projects?** — Pick from suggestions (common folders like `~/Projects`, plus every drive letter on Windows) or type a path.
-2. **Which folders are projects?** — Multi-select with <kbd>Space</kbd>, confirm with <kbd>Enter</kbd>.
-3. **Status + description per folder** — `Experimental`, `Live`, `Working` or `Pending`, plus a one-line blurb.
+1. **Which directory holds your projects?** — Pick from suggestions (common folders like `~/Projects`, `~/dev`, plus every drive letter on Windows) or type a path.
+2. **Which folders are projects?** — termdeck scans the directory and shows only folders that contain a `.git` directory or a `package.json` manifest. Multi-select with <kbd>Space</kbd>, confirm with <kbd>Enter</kbd>.
+3. **Per-project details** — For each project you pick, termdeck asks its status (`live`, `exp`, `pend` or `scrap`, default `exp`), the dev-server port (default `3000`) and the package manager (`npm`, `pnpm` or `yarn` — auto-detected from `pnpm-lock.yaml` / `yarn.lock`).
 
-Every later launch skips straight to the dashboard. Re-run the setup any time with `termdeck --setup` (existing answers are pre-filled as defaults).
+Every later launch skips straight to the dashboard.
 
-> **Tip:** You can manually edit `~/.termdeck-config.json` if needed. Press <kbd>r</kbd> in the dashboard to reload changes.
+> **Tip:** You can manually edit `~/.termdeck-config.json` if needed. Press <kbd>r</kbd> in the dashboard to reload.
 
 ---
 
 ## ⌨️ Usage & Controls
 
+### CLI Flags
+
+| Command | What it does |
+| --- | --- |
+| `termdeck` | Launch the dashboard using the existing config (first run starts the wizard). |
+| `termdeck --demo` | Launch with 14 sample projects (great for trying it out). |
+| `termdeck --scan` | Re-run the interactive scanner: adds/updates projects in the config, merging with existing entries and preserving custom agent configs. |
+| `termdeck --no-auto-restart` | Disable dev-server crash recovery for this session only. |
+| `termdeck --reset` | Delete the config file and force a fresh first-run setup on the next launch. |
+| `termdeck --no-update` | Disable the background auto-updater. |
+| `termdeck --setup` | Re-run the setup wizard manually. |
+| `termdeck --list` | Print the configured projects as a table and exit (no TUI). |
+| `termdeck --no-open` | Do not auto-open the browser when a dev server starts. |
+
 ### Keyboard Shortcuts
 
 | Key | Action |
 | --- | --- |
-| <kbd>↑</kbd> / <kbd>↓</kbd> | Navigate projects |
-| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Focus cycling between buttons |
-| <kbd>Enter</kbd> or <kbd>Space</kbd> | Activate focused button |
-| <kbd>d</kbd> | Start Dev Server for selected project |
-| <kbd>e</kbd> | Open Editor (VS Code) in new terminal |
-| <kbd>a</kbd> | Open Coding Agent in new terminal |
-| <kbd>x</kbd> | Stop running Dev Server |
-| <kbd>r</kbd> | Reload dashboard |
-| <kbd>q</kbd> or <kbd>Esc</kbd> | Quit TermDeck |
+| <kbd>↑</kbd> / <kbd>↓</kbd> or <kbd>j</kbd> / <kbd>k</kbd> | Navigate projects |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle focus: project list → actions → output |
+| <kbd>Enter</kbd> or <kbd>Space</kbd> | Activate the focused button |
+| <kbd>r</kbd> / <kbd>d</kbd> | Run `npm run dev` for the selected project |
+| <kbd>e</kbd> | Open the project in your editor in a new terminal |
+| <kbd>c</kbd> | Open Claude in a new terminal |
+| <kbd>x</kbd> | Open Codex in a new terminal |
+| <kbd>o</kbd> | Open opencode in a new terminal |
+| <kbd>f</kbd> | Open freebuff in a new terminal |
+| <kbd>k</kbd> | Open kilocode in a new terminal |
+| <kbd>s</kbd> | Cycle the selected project's status |
+| <kbd>/</kbd> | Search projects by name (Enter commits, Esc cancels) |
+| <kbd>1</kbd>–<kbd>5</kbd> | Filter by status chip: all / live / exp / pend / scrap |
+| <kbd>Shift</kbd>+<kbd>X</kbd> | Stop the selected project's dev server |
+| <kbd>PgUp</kbd>/<kbd>PgDn</kbd>, mouse wheel | Scroll the dev server logs (<kbd>g</kbd> to follow the tail again) |
+| <kbd>q</kbd> | Quit (stops every dev server it started) |
 
 > **Mouse Support:** All buttons and list items are fully clickable. Use the mouse wheel to scroll logs.
-
-### Dashboard Preview
-
-```
-+----------------------------------------------------------------------+
-| termdeck  4 projects · /home/you/Projects      ● 2 dev servers running
-+------------------------+---------------------------------------------+
-| projects               | selected project                            |
-| ● api      [Live]      | alpha   ● Working                           |
-| ● alpha    [Working]   | /home/you/Projects/alpha                    |
-| ○ blog     [Pending]   | marketing site                              |
-| ○ lab      [Experimental]| editor: code .   agent: opencode          |
-|                        | ● dev server running (pid 8123) → localhost |
-+------------------------+---------------------------------------------+
-|                        | [d] Dev Server [e] Editor [a] Agent         |
-|                        +---------------------------------------------+
-|                        | dev server logs                             |
-|                        | 12:04:11 alpha [termdeck] $npm run dev      |
-|                        | 12:04:12 alpha ➜ Local: http://localhost:51 |
-+------------------------+---------------------------------------------+
-| ↑/↓ select  d dev  e editor  a agent  x stop  r reload  q quit       |
-+----------------------------------------------------------------------+
-```
 
 ---
 
@@ -155,8 +169,11 @@ Every later launch skips straight to the dashboard. Re-run the setup any time wi
 **How do I disable auto-updates?**
 Pass `--no-update` when you launch the dashboard: `termdeck --no-update`. The npm registry is then never contacted and nothing is printed.
 
-**Why does termdeck check for updates on launch?**
-It ensures you always have the latest features and bug fixes without ever running an upgrade command. The check is fire-and-forget: it is capped at two seconds, runs in the background, and only ever shows a single short notice when an update is actually being installed.
+**A dev server keeps restarting — how do I stop that?**
+termdeck restarts a crashed dev server up to 3 times, then gives up and logs the failure. If you would rather not have any crash recovery for a session, launch with `termdeck --no-auto-restart`.
+
+**Does my config get clobbered when I re-scan?**
+No. `termdeck --scan` (or the setup wizard on a machine that already has a config) merges: projects you didn't touch stay exactly as they are, projects you re-select get their new status/port/package manager, and hand-written per-project overrides such as custom agent commands are kept.
 
 ---
 
@@ -169,15 +186,17 @@ git clone https://github.com/barigalasunil/termdeck.git
 cd termdeck
 npm install
 npm link        # symlink into global node_modules
-termdeck        # runs from anywhere with your edits live
+termdeck         # runs from anywhere with your edits live
 ```
 
 ### Running Tests
 
 ```bash
-npm test        # unit + end-to-end dev server tests (31/31 passing ✅)
+npm test        # unit + end-to-end dev server tests (64/64 passing ✅)
 npm run smoke   # headless TUI smoke test
 ```
+
+The smoke test drives a headless blessed screen: it verifies the dashboard renders, the dev-server CTA starts a real fixture server and streams its logs into the log pane, and that stopping the server cleans up the child process.
 
 ### Testing Auto-Updates
 
@@ -187,28 +206,28 @@ The updater reads its registry endpoint from `TERMDECK_REGISTRY_URL`, so you can
 node -e "require('http').createServer((q,s)=>{s.setHeader('content-type','application/json');s.end(JSON.stringify({version:'9.9.9'}))}).listen(4873)"
 ```
 
-Then run termdeck with the mock enabled — you should see the "Checking for updates" banner, the dashboard footer toast, and the detached `npm install -g termdeck-cli@latest` in the background:
+Then run termdeck with the mock enabled:
 
 ```bash
 # macOS/Linux
-TERMDECK_REGISTRY_URL=http://127.0.0.1:4873/termdeck-cli/latest termdeck
+TERMDECK_REGISTRY_URL=http://127.0.0.1:4873/termdeck/latest termdeck
 
 # Windows PowerShell
-$env:TERMDECK_REGISTRY_URL="http://127.0.0.1:4873/termdeck-cli/latest"; termdeck
+$env:TERMDECK_REGISTRY_URL="http://127.0.0.1:4873/termdeck/latest"; termdeck
 ```
 
-> The install always targets `@latest` on the **real** npm registry. Set the mock to your current version (e.g. `{"version":"1.0.3"}`) to exercise the "already up to date, no install" path, or use `--no-update` to skip the check entirely.
+> The install always targets `@latest` on the **real** npm registry. Set the mock to your current version (e.g. `{"version":"2.0.0"}`) to exercise the "already up to date, no install" path, or use `--no-update` to skip the check entirely.
 
 ### Releasing a Version
 
 ```bash
-npm version patch    # 1.0.3 -> 1.0.4 (bug fixes)
-npm version minor    # adds backwards-compatible features
-npm version major    # breaking changes
+npm version patch     # 2.0.0 -> 2.0.1 (bug fixes)
+npm version minor     # adds backwards-compatible features
+npm version major     # breaking changes
 npm publish
 ```
 
-Publishing a higher version is what triggers the auto-update for everyone already using termdeck.
+Publishing a higher version is what triggers the auto-update for everyone already running termdeck.
 
 ### Unlink When Done
 
@@ -230,6 +249,6 @@ MIT
 
 **Built with ❤️ by [Sunil](https://github.com/barigalasunil)**
 
-[GitHub](https://github.com/barigalasunil/termdeck) · [npm](https://www.npmjs.com/package/termdeck-cli)
+[GitHub](https://github.com/barigalasunil/termdeck) · [npm](https://www.npmjs.com/package/termdeck)
 
 </div>
