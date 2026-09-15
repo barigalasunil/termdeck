@@ -33,8 +33,10 @@ class DevServerManager {
    * @param {object} options
    * @param {function} options.onLog    (project, line, stream) => void
    * @param {function} options.onState  (project, state) => void
-   * @param {function} options.onExit   (project, {code, signal, stoppedByUs}) => void
+   * @param {function} options.onExit   (project, {code, signal, stoppedByUs, restart, attempt, max}) => void
    * @param {function} options.openBrowser (url, project) => Promise<void>
+   * @param {number} [options.maxRestarts=3]   auto-restart attempts after a crash
+   * @param {number} [options.restartDelayMs]  pause before an auto-restart
    */
   constructor(options = {}) {
     this.onLog = options.onLog || (() => {});
@@ -50,6 +52,10 @@ class DevServerManager {
     this.servers = new Map();
     this.lastExit = new Map();
     this.autoOpenBrowser = options.autoOpenBrowser !== false;
+    this.autoRestart = options.autoRestart !== false;
+    this.maxRestarts = options.maxRestarts == null ? 3 : options.maxRestarts;
+    this.restartDelayMs = options.restartDelayMs || 1200;
+    this.restartCounts = new Map();
   }
 
   /** @returns {object|undefined} running entry for a project path */
@@ -138,7 +144,29 @@ class DevServerManager {
       entry.status = 'stopped';
       this.lastExit.set(project.path, { code, signal, at: Date.now(), stoppedByUs });
       this.state(project, { status: 'stopped', pid: entry.pid, url: entry.url, code, signal });
-      this.onExit(project, { code, signal, stoppedByUs });
+
+      // The process died on its own (a crash), not because we stopped it:
+      // bring it straight back up, up to maxRestarts times, as long as neither
+      // the global setting nor the project says otherwise.
+      if (!stoppedByUs && this.shouldRestart(project)) {
+        const attempt = this.restartCounts.get(project.path);
+        const detail = signal ? `signal ${signal}` : `exit code ${code}`;
+        this.log(
+          project,
+          `{yellow-fg}dev server exited (${detail}) — auto-restarting ({bold}${attempt}/${this.maxRestarts}{/bold})\u2026{/yellow-fg}`,
+          'system'
+        );
+        this.onExit(project, { code, signal, stoppedByUs, restart: true, attempt, max: this.maxRestarts });
+        const timer = setTimeout(() => {
+          if (this.servers.has(project.path)) return;
+          this.log(project, `{cyan-fg}[projctl]{/cyan-fg} auto-restarting dev server`, 'system');
+          this.start(project);
+        }, this.restartDelayMs);
+        if (timer.unref) timer.unref();
+        entry.timers.push(timer);
+      } else {
+        this.onExit(project, { code, signal, stoppedByUs });
+      }
     });
 
     this.state(project, { status: 'starting', pid: entry.pid, url: null });
@@ -161,6 +189,25 @@ class DevServerManager {
     return { ok: true, entry };
   }
 
+  /**
+   * True when a crashed dev server should be restarted: auto-restart is
+   * enabled (globally and for this project) and the restart budget remains.
+   */
+  restartAvailable(project) {
+    if (!this.autoRestart) return false;
+    if (project && project.autoRestart === false) return false;
+    if (this.maxRestarts <= 0) return false;
+    return true;
+  }
+
+  shouldRestart(project) {
+    if (!this.restartAvailable(project)) return false;
+    const attempts = (this.restartCounts.get(project.path) || 0) + 1;
+    if (attempts > this.maxRestarts) return false;
+    this.restartCounts.set(project.path, attempts);
+    return true;
+  }
+
   /** Consume raw stream data: split lines, look for the first local URL. */
   handleChunk(entry, chunk, carry, stream) {
     const lines = splitLines(chunk.toString('utf8'), carry);
@@ -180,6 +227,8 @@ class DevServerManager {
     entry.url = url;
     entry.urlGuess = guessed;
     entry.status = 'running';
+    // The server proved healthy — restore the crash-restart budget.
+    this.restartCounts.delete(entry.project.path);
     this.state(entry.project, { status: 'running', pid: entry.pid, url, guessed });
 
     if (!this.autoOpenBrowser || entry.browserOpened) return;

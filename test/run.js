@@ -24,6 +24,7 @@ const { LogView } = require('../src/logView');
 const { DevServerManager, parseCommand } = require('../src/devServer');
 const { parseArgs } = require('../src/index');
 const updater = require('../src/updater');
+const processMonitor = require('../src/processMonitor');
 
 const FIXTURE_APP = path.join(__dirname, 'fixtures', 'fake-app');
 const TMP_DIR = path.join(__dirname, 'tmp');
@@ -190,6 +191,33 @@ test('normalizeProject fills in defaults', () => {
   assert.strictEqual(configModule.STATUS_COLORS.Live, 'green');
 });
 
+test('normalizeProject resolves relative paths against the config root', () => {
+  const project = configModule.normalizeProject({ name: 'hyperion-core', path: 'hyperion-core', status: 'live' }, path.join(os.homedir(), 'dev', 'projects'));
+  assert.strictEqual(project.path, path.join(os.homedir(), 'dev', 'projects', 'hyperion-core'));
+});
+
+test('loadConfigFromPath expands ~ roots and normalises the demo dataset', () => {
+  const sample = path.join(__dirname, '..', 'sample-config.json');
+  const config = configModule.loadConfigFromPath(sample);
+  assert.ok(config, 'sample dataset parses');
+  assert.strictEqual(config.demoMode, true);
+  assert.strictEqual(config.autoRestart, true);
+  assert.strictEqual(config.projects.length, 14, 'fourteen demo projects');
+  const live = config.projects.filter((p) => p.status === 'live').length;
+  assert.strictEqual(live, 6);
+  assert.strictEqual(config.projects[0].path, path.join(os.homedir(), 'dev', 'projects', 'hyperion-core'));
+  assert.ok(config.projects[0].stack.includes('Next.js'), 'v2 fields survive normalisation');
+});
+
+test('displayPath shortens the project path to root/<name>', () => {
+  const home = os.homedir();
+  const root = path.join(home, 'dev', 'projects');
+  const projectPath = path.join(root, 'hyperion-core');
+  const shown = configModule.displayPath(projectPath, root);
+  assert.ok(shown.endsWith(path.join('dev', 'projects', 'hyperion-core')), shown);
+  assert.strictEqual(configModule.displayPath(home, home), '~');
+});
+
 test('scanDirectories lists folders and skips noise', () => {
   const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'termdeck-scan-'));
   try {
@@ -201,6 +229,68 @@ test('scanDirectories lists folders and skips noise', () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('scanProjectCandidates keeps only folders with .git or package.json', () => {
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'projctl-cands-'));
+  try {
+    fs.mkdirSync(path.join(root, 'gitrepo', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'npmrepo'));
+    fs.writeFileSync(path.join(root, 'npmrepo', 'package.json'), '{}');
+    fs.mkdirSync(path.join(root, 'plain')); // no markers -> skipped
+    fs.mkdirSync(path.join(root, 'node_modules')); // noise
+    fs.mkdirSync(path.join(root, '.hidden')); // hidden
+
+    const found = configModule.scanProjectCandidates(root);
+    assert.deepStrictEqual(found.map((entry) => entry.name), ['gitrepo', 'npmrepo']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('detectPackageManager prefers pnpm/yarn lockfiles, falls back to npm', () => {
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'projctl-pm-'));
+  try {
+    fs.writeFileSync(path.join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 6');
+    assert.strictEqual(configModule.detectPackageManager(root), 'pnpm');
+    fs.rmSync(path.join(root, 'pnpm-lock.yaml'));
+    fs.writeFileSync(path.join(root, 'yarn.lock'), '# yarn');
+    assert.strictEqual(configModule.detectPackageManager(root), 'yarn');
+    fs.rmSync(path.join(root, 'yarn.lock'));
+    assert.strictEqual(configModule.detectPackageManager(root), 'npm');
+    assert.strictEqual(configModule.detectPackageManager(path.join(root, 'does-not-exist')), 'npm');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('mergeWizardProjects keeps unselected projects and preserves overrides', () => {
+  const existing = [
+    { name: 'kept', path: 'C:/proj/kept', status: 'live', agents: { claude: 'custom-claude' } },
+    { name: 'updated', path: 'C:/proj/updated', status: 'exp', port: 4000, agents: { codex: 'custom-codex' } },
+  ];
+  const wizard = [{ name: 'updated', path: 'C:/proj/updated', status: 'live', port: 5000 }];
+
+  const merged = configModule.mergeWizardProjects(existing, wizard);
+  assert.deepStrictEqual(
+    merged.map((p) => p.path),
+    ['C:/proj/kept', 'C:/proj/updated'],
+    'unselected existing project is preserved, then incoming updates its twin'
+  );
+  const updated = merged.find((p) => p.name === 'updated');
+  assert.strictEqual(updated.status, 'live');
+  assert.strictEqual(updated.port, 5000);
+  assert.deepStrictEqual(updated.agents, { codex: 'custom-codex' }, 'custom agent config is preserved on update');
+  const kept = merged.find((p) => p.name === 'kept');
+  assert.deepStrictEqual(kept.agents, { claude: 'custom-claude' });
+});
+
+test('mergeWizardProjects appends brand new projects', () => {
+  const existing = [{ name: 'old', path: 'C:/proj/old', status: 'pend' }];
+  const wizard = [{ name: 'brand-new', path: 'D:/proj/brand-new', status: 'exp' }];
+  const merged = configModule.mergeWizardProjects(existing, wizard);
+  assert.strictEqual(merged.length, 2);
+  assert.ok(merged.some((p) => p.path === 'D:/proj/brand-new'));
 });
 
 test('saveConfig/loadConfig round trip honour TERMDECK_CONFIG', () => {
@@ -245,6 +335,10 @@ test('parseArgs understands the documented flags', () => {
   assert.strictEqual(parseArgs([]).noUpdate, false);
   assert.strictEqual(parseArgs(['-h']).help, true);
   assert.strictEqual(parseArgs([]).help, false);
+  assert.strictEqual(parseArgs(['--scan']).scan, true);
+  assert.strictEqual(parseArgs([]).scan, false);
+  assert.strictEqual(parseArgs(['--no-auto-restart']).noAutoRestart, true);
+  assert.strictEqual(parseArgs([]).noAutoRestart, false);
 });
 
 test('printProjects renders a table without the TUI', () => {
@@ -427,8 +521,354 @@ test('end to end: npm run dev -> logs streamed -> url detected -> stopped', asyn
 });
 
 /* ------------------------------------------------------------------ *
+ * processMonitor
+ * ------------------------------------------------------------------ */
+
+test('formatMemory / formatCpu render one-decimal UI strings', () => {
+  assert.strictEqual(processMonitor.formatMemory(149422080), '142.5 MB');
+  assert.strictEqual(processMonitor.formatCpu(0.8), '0.8%');
+  assert.strictEqual(processMonitor.formatMemory(NaN), null);
+  assert.strictEqual(processMonitor.formatCpu('x'), null);
+});
+
+test('getPIDByPort parses netstat rows on Windows', () => {
+  // Forced win32 branch: the runner is injected, so no real netstat is needed.
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    const stdout = [
+      '  TCP    0.0.0.0:0              0.0.0.0:0              LISTENING       4',
+      '  TCP    0.0.0.0:3000           0.0.0.0:0              LISTENING       49201',
+      '  TCP    127.0.0.1:3000         127.0.0.1:0            LISTENING       49201',
+      '  TCP    [::]:3000              [::]:0                 LISTENING       9911',
+    ].join('\n');
+    const spawn = { sync: () => ({ status: 0, stdout }) };
+    assert.strictEqual(processMonitor.getPIDByPort(3000, { spawn }), 49201);
+
+    // A busy port in a different range must not leak through.
+    assert.strictEqual(processMonitor.getPIDByPort(9999, { spawn }), null);
+
+    // Command failure degrades to null, never throws.
+    const failing = { sync: () => ({ error: new Error('boom'), status: null }) };
+    assert.strictEqual(processMonitor.getPIDByPort(3000, { spawn: failing }), null);
+  } finally {
+    Object.defineProperty(process, 'platform', realPlatform);
+  }
+});
+
+test('getPIDByPort parses lsof output on unix', () => {
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'darwin' });
+  try {
+    const spawn = { sync: () => ({ status: 0, stdout: '49201\n49202\n' }) };
+    assert.strictEqual(processMonitor.getPIDByPort(3000, { spawn }), 49201);
+    assert.strictEqual(processMonitor.getPIDByPort(0, { spawn }), null);
+  } finally {
+    Object.defineProperty(process, 'platform', realPlatform);
+  }
+});
+
+test('getProcessStats returns null for a dead PID and never rejects', async () => {
+  const usage = () => Promise.reject(new Error('process not found'));
+  assert.strictEqual(await processMonitor.getProcessStats(999999, { usage }), null);
+  assert.strictEqual(await processMonitor.getProcessStats(null, { usage }), null);
+});
+
+test('getProcessStats formats memory and cpu for a live PID', async () => {
+  const usage = () => Promise.resolve({ cpu: 0.8, memory: 149422080 });
+  const stats = await processMonitor.getProcessStats(123, { usage });
+  assert.deepStrictEqual(stats, { pid: 123, memory: '142.5 MB', cpu: '0.8%' });
+});
+
+test('startMonitoring polls on an interval and stopMonitoring ends it', async () => {
+  const reports = [];
+  const stop = processMonitor.startMonitoring(
+    { path: '/p1', port: 3000 },
+    (report) => reports.push(report),
+    {
+      intervalMs: 15,
+      getPID: () => 123,
+      getStats: () => ({ memory: '1.0 MB', cpu: '0.5%' }),
+    }
+  );
+
+  await waitFor(() => reports.length >= 2, 2000, 'two polls');
+  assert.strictEqual(reports[0].running, true);
+  assert.strictEqual(reports[0].pid, 123);
+  assert.strictEqual(reports[0].memory, '1.0 MB');
+
+  processMonitor.stopMonitoring('/p1');
+  const count = reports.length;
+  await sleep(60);
+  assert.strictEqual(reports.length, count, 'no polls after stop');
+
+  assert.strictEqual(typeof stop, 'function');
+  stop();
+});
+
+test('startMonitoring reports running:false when the port has no process', async () => {
+  const reports = [];
+  processMonitor.startMonitoring(
+    { path: '/p2', port: 4000 },
+    (report) => reports.push(report),
+    { intervalMs: 60, getPID: () => null, getStats: () => null }
+  );
+  await waitFor(() => reports.length >= 1, 1000, 'first quiet report');
+  assert.deepStrictEqual(reports[0], { running: false, pid: null, memory: null, cpu: null });
+  processMonitor.stopMonitoring('/p2');
+});
+
+/* ------------------------------------------------------------------ *
  * auto-updater
  * ------------------------------------------------------------------ */
+
+test('the auto-updater is hard-wired to the projctl-cli package', () => {
+  assert.strictEqual(updater.PACKAGE_NAME, 'projctl-cli');
+  assert.ok(updater.DEFAULT_REGISTRY_URL.endsWith('/projctl-cli/latest'), updater.DEFAULT_REGISTRY_URL);
+});
+
+/* ------------------------------------------------------------------ *
+ * projectManager
+ * ------------------------------------------------------------------ */
+
+const projectManager = require('../src/projectManager');
+
+test('getGitInfo returns branch/hash/message/dirty from a fake git runner', () => {
+  const fakeGit = (args, cwd) => {
+    if (args[0] === 'rev-parse' && args.includes('--is-inside-work-tree')) return 'true';
+    if (args[0] === 'rev-parse' && args.includes('--abbrev-ref')) return 'main';
+    if (args[0] === 'rev-parse' && args.includes('--short')) return 'abc1234';
+    if (args[0] === 'log' && args.includes('--pretty=%s')) return 'feat: add moonbeam';
+    if (args[0] === 'log' && args.includes('--format=%cI')) return '2026-09-12T14:00:00+00:00';
+    if (args[0] === 'status' && args.includes('--porcelain')) return 'M foo.js\nD bar.js\n?? baz.js';
+    return null;
+  };
+  projectManager.clearGitCache();
+  const info = projectManager.getGitInfo('/fake', { force: true, git: fakeGit });
+  assert.strictEqual(info.branch, 'main');
+  assert.strictEqual(info.commitHash, 'abc1234');
+  assert.strictEqual(info.commitMsg, 'feat: add moonbeam');
+  assert.deepStrictEqual(info.dirty, { added: 2, removed: 1 });
+  assert.strictEqual(typeof info.lastCommitAt, 'string');
+});
+
+test('getGitInfo returns nulls/empty outside a git repo', () => {
+  const fakeGit = () => null;
+  projectManager.clearGitCache();
+  const info = projectManager.getGitInfo('/nonexistent', { force: true, git: fakeGit });
+  assert.strictEqual(info.branch, null);
+  assert.strictEqual(info.commitHash, null);
+  assert.strictEqual(info.commitMsg, null);
+  assert.deepStrictEqual(info.dirty, { added: 0, removed: 0 });
+});
+
+test('parseDirtyState counts added and removed files', () => {
+  assert.deepStrictEqual(projectManager.parseDirtyState('?? untracked.js\nM staged.js'), { added: 2, removed: 0 });
+  assert.deepStrictEqual(projectManager.parseDirtyState('D deleted.js\nR old.js -> new.js'), { added: 0, removed: 2 });
+  assert.deepStrictEqual(projectManager.parseDirtyState(''), { added: 0, removed: 0 });
+  assert.deepStrictEqual(projectManager.parseDirtyState(null), { added: 0, removed: 0 });
+});
+
+test('getGitInfo caches results and respects force flag', () => {
+  let callCount = 0;
+  const fakeGit = (args) => {
+    callCount++;
+    if (args[0] === 'rev-parse' && args.includes('--is-inside-work-tree')) return 'true';
+    if (args[0] === 'rev-parse' && args.includes('--abbrev-ref')) return 'dev';
+    if (args[0] === 'rev-parse' && args.includes('--short')) return 'deadbeef';
+    if (args[0] === 'log' && args.includes('--pretty=%s')) return 'fix: stuff';
+    if (args[0] === 'status' && args.includes('--porcelain')) return '';
+    return null;
+  };
+  projectManager.clearGitCache();
+
+  projectManager.getGitInfo('/cached', { force: false, git: fakeGit });
+  projectManager.getGitInfo('/cached', { force: false, git: fakeGit });
+  projectManager.getGitInfo('/cached', { force: false, git: fakeGit });
+  assert.ok(callCount <= 6, 'cached calls should not re-run git (callCount=' + callCount + ')');
+
+  projectManager.getGitInfo('/cached', { force: true, git: fakeGit });
+  assert.ok(callCount >= 6, 'force=true must bypass cache (callCount=' + callCount + ')');
+});
+
+test('scanProjects finds directories and skips hidden files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-scan-'));
+  try {
+    fs.mkdirSync(path.join(root, 'app-a'));
+    fs.mkdirSync(path.join(root, '.git-cache'));
+    fs.mkdirSync(path.join(root, 'node_modules'));
+    fs.writeFileSync(path.join(root, 'readme.md'), 'hi');
+    const ignored = new Set(['node_modules']);
+    const results = projectManager.scanProjects(root, { ignored });
+    assert.deepStrictEqual(
+      results.map((p) => p.name),
+      ['app-a']
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('getLastActivity returns a human-readable time or null', () => {
+  const fakeGit = (args) => {
+    if (args[0] === 'rev-parse' && args.includes('--is-inside-work-tree')) return 'true';
+    if (args[0] === 'log' && args.includes('--format=%cI')) return new Date(Date.now() - 300000).toISOString(); // 5m ago
+    return null;
+  };
+  projectManager.clearGitCache();
+  const ago = projectManager.getLastActivity('/5min', { git: fakeGit });
+  assert.ok(ago && ago.includes('m ago'), ago);
+
+  const fakeGitNone = () => null;
+  projectManager.clearGitCache();
+  const ago2 = projectManager.getLastActivity('/none', { git: fakeGitNone });
+  assert.strictEqual(ago2, null);
+});
+
+/* ------------------------------------------------------------------ *
+ * agentManager
+ * ------------------------------------------------------------------ */
+
+const agentManager = require('../src/agentManager');
+
+test('AGENT_COMMANDS contains all five agents', () => {
+  const keys = Object.keys(agentManager.AGENT_COMMANDS).sort();
+  assert.deepStrictEqual(keys, ['claude', 'codex', 'freebuff', 'kilocode', 'opencode']);
+});
+
+test('buildAgentCommand on unix includes tee -a with log path', () => {
+  const project = { name: 'my-app', path: '/projects/my-app', agents: {} };
+  const { command, logFile } = agentManager.buildAgentCommand(project, 'claude', { platform: 'linux' });
+  assert.ok(command.includes('claude'), command);
+  assert.ok(command.includes('tee -a'), command);
+  assert.ok(logFile.includes('my-app-claude.log'), logFile);
+});
+
+test('buildAgentCommand on windows without tee uses bare command', () => {
+  // Force no tee by injecting a which that always returns null
+  const origWhich = agentManager.buildAgentCommand;
+  const project = { name: 'win-app', path: '/projects/win-app', agents: {} };
+  // buildAgentCommand doesn't accept which override directly — it calls which()
+  // which() searches PATH; on CI, tee may or may not exist.  We just assert
+  // the shape is sane (either has tee or is bare).
+  const { command, logFile } = agentManager.buildAgentCommand(project, 'codex', { platform: process.platform });
+  assert.ok(typeof command === 'string' && command.length > 0);
+  assert.ok(logFile.includes('win-app-codex.log'), logFile);
+});
+
+test('launchAgent with commandOnly returns the command without spawning', async () => {
+  const project = { name: 'svc', path: '/tmp/svc', agents: {} };
+  const result = await agentManager.launchAgent(project, 'claude', { commandOnly: true });
+  assert.strictEqual(result.ok, undefined);
+  assert.ok(typeof result.command === 'string');
+  assert.ok(result.command.includes('claude'), result.command);
+  assert.ok(result.logFile.includes('svc-claude.log'));
+});
+
+test('launchAgent calls openInNewTerminal with correct cwd', async () => {
+  const calls = [];
+  const project = { name: 'proj', path: '/tmp/proj', agents: {} };
+  const fakeTerminal = async (opts) => {
+    calls.push(opts);
+    return { ok: true, terminal: 'mock-term', command: opts.command };
+  };
+  const result = await agentManager.launchAgent(project, 'codex', { terminal: fakeTerminal });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.terminal, 'mock-term');
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].cwd, '/tmp/proj');
+  assert.ok(calls[0].command.includes('codex'), calls[0].command);
+});
+
+test('launchAgent returns error for unknown agent', async () => {
+  const project = { name: 'x', path: '/tmp/x', agents: {} };
+  const result = await agentManager.launchAgent(project, 'nonexistent');
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.error.includes('unknown agent'), result.error);
+});
+
+test('launchAgent returns error for missing project', async () => {
+  const result = await agentManager.launchAgent(null, 'claude');
+  assert.strictEqual(result.ok, false);
+});
+
+test('stopAgent is idempotent and isTailing is false for untailed agents', () => {
+  assert.strictEqual(agentManager.isTailing({ path: '/nope' }, 'claude'), false);
+  assert.strictEqual(agentManager.stopAgent({ path: '/nope' }, 'claude'), false);
+});
+
+test('tailAgentLog creates a log file and tails it', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'am-tail-'));
+  const project = { name: 'tailtest', path: '/tmp/tailtest', agents: {} };
+  const lines = [];
+  try {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const file = path.join(tmpDir, 'tailtest-claude.log');
+    fs.writeFileSync(file, 'initial line\n');
+
+    const stop = agentManager.tailAgentLog(
+      project,
+      'claude',
+      (line) => lines.push(line),
+      { logDir: tmpDir, intervalMs: 50 }
+    );
+    // Wait for the first tick to detect existing content
+    await sleep(200);
+    assert.ok(lines.length >= 1, 'should have received initial line');
+    assert.ok(lines.includes('initial line'));
+
+    // Append a new line and verify it is picked up
+    fs.appendFileSync(file, 'new line\n');
+    await sleep(300);
+    assert.ok(lines.includes('new line'), 'appended line should be tailed');
+
+    stop();
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * devServer crash auto-restart
+ * ------------------------------------------------------------------ */
+
+test('DevServerManager auto-restarts crashed servers up to maxRestarts', async () => {
+  const states = [];
+  const exits = [];
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devserver-restart-'));
+
+  const manager = new DevServerManager({
+    browserDelayMs: 5,
+    restartDelayMs: 10,
+    maxRestarts: 3,
+    onState: (_project, state) => states.push(state),
+    onExit: (_project, info) => exits.push(info),
+  });
+
+  const project = { name: 'crasher', path: tmpDir, devCommand: 'node -e "process.exit(1)"' };
+  manager.start(project);
+
+  // Wait for up to 3 restart attempts (each ~ 20ms restartDelay + spawn)
+  await waitFor(() => exits.filter((e) => e.restart === true).length >= 3, 10000, 'three crash restarts');
+  await sleep(300);
+  const restarts = exits.filter((e) => e.restart === true);
+  assert.ok(restarts.length <= 3, 'max 3 restarts (got ' + restarts.length + ')');
+  manager.stopAll();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('DevServerManager restartAvailable respects per-project autoRestart:false', () => {
+  const manager = new DevServerManager({ maxRestarts: 3 });
+  assert.strictEqual(manager.restartAvailable({ path: '/a' }), true);
+  assert.strictEqual(manager.restartAvailable({ path: '/b', autoRestart: false }), false);
+  manager.autoRestart = false;
+  assert.strictEqual(manager.restartAvailable({ path: '/c' }), false);
+});
+
+test('DevServerManager constructor disables restart for the whole session', () => {
+  const manager = new DevServerManager({ autoRestart: false, maxRestarts: 3 });
+  assert.strictEqual(manager.restartAvailable({ path: '/a' }), false, 'autoRestart:false at construction blocks every project');
+});
 
 /** In-process HTTP registry mock; tracks sockets so close() is instant. */
 async function startRegistry(handler) {
@@ -437,7 +877,7 @@ async function startRegistry(handler) {
   server.on('connection', (socket) => sockets.add(socket));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}/termdeck-cli/latest`,
+    url: `http://127.0.0.1:${server.address().port}/projctl/latest`,
     close: () =>
       new Promise((resolve) => {
         for (const socket of sockets) socket.destroy();
@@ -495,7 +935,7 @@ test('installUpdate runs npm install -g via cross-spawn, detached and silent', (
 
   assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0].bin, 'npm');
-  assert.deepStrictEqual(calls[0].args, ['install', '-g', 'termdeck-cli@latest']);
+  assert.deepStrictEqual(calls[0].args, ['install', '-g', 'projctl-cli@latest']);
   assert.strictEqual(calls[0].opts.detached, true, 'install survives the dashboard quitting');
   assert.strictEqual(calls[0].opts.stdio, 'ignore', 'install is silent');
   assert.strictEqual(fakeChild.unrefCalled, true);

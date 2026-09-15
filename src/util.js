@@ -55,6 +55,28 @@ function timestamp(date = new Date()) {
   return `${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
 }
 
+/**
+ * Relative time like "12m ago". Accepts an ISO string, Date or epoch ms and
+ * returns null when it cannot be parsed.
+ */
+function timeAgo(value, now = new Date()) {
+  if (value == null || value === '') return null;
+  const then = new Date(value);
+  if (Number.isNaN(then.getTime())) return null;
+
+  const seconds = Math.max(0, Math.floor((now.getTime() - then.getTime()) / 1000));
+  if (seconds < 45) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.round(months / 12)}y ago`;
+}
+
 /* ------------------------------------------------------------------ *
  * Dev-server output parsing
  * ------------------------------------------------------------------ */
@@ -215,4 +237,5 @@ module.exports = {
   shellQuote,
   appleScriptString,
   killTree,
+  timeAgo,
 };

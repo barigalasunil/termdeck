@@ -1,44 +1,56 @@
+#!/usr/bin/env node
 'use strict';
 
 /**
- * termdeck CLI.
+ * projctl CLI.
  *
- * `termdeck`                launch the dashboard (runs setup on first use)
- * `termdeck --setup`        re-run the setup wizard
- * `termdeck --reset`        delete the config file and run setup again
- * `termdeck --list`         print the configured projects and exit (no TUI)
- * `termdeck --no-open`      do not auto-open the browser for dev servers
- * `termdeck --no-update`    skip the automatic background update check
+ * `projctl`                launch the dashboard (runs setup on first use)
+ * `projctl --setup`        re-run the setup wizard
+ * `projctl --scan`         scan for projects and merge them into the config
+ * `projctl --reset`        delete the config file and run setup again
+ * `projctl --list`         print the configured projects and exit (no TUI)
+ * `projctl --demo`         launch with the shipped 14-project sample dataset
+ * `projctl --no-open`      do not auto-open the browser for dev servers
+ * `projctl --no-update`    skip the automatic background update check
+ * `projctl --no-auto-restart`  disable dev-server crash recovery for this session
  */
 
 const fs = require('fs');
+const path = require('path');
 
-const { getConfigPath, configExists, loadConfig, runSetupWizard } = require('./config');
+const { getConfigPath, configExists, loadConfig, loadConfigFromPath, runSetupWizard } = require('./config');
+
+const DEMO_CONFIG_PATH = path.join(__dirname, '..', 'sample-config.json');
 
 const HELP = `
-  termdeck - a terminal dashboard for your local dev projects
+  projctl - a terminal dashboard for your local dev projects
 
   Usage
-    $ termdeck [options]
+    $ projctl [options]
 
   Options
     -h, --help        Show this help
     -V, --version     Show the version
     -s, --setup       Re-run the interactive setup wizard
+        --scan        Scan for projects and merge them into the config
     -r, --reset       Delete the config file, then run setup again
     -l, --list        Print the configured projects and exit
+        --demo        Launch with the shipped 14-project sample dataset
         --no-open     Do not open a browser when a dev server starts
         --no-update   Skip the automatic background update check
+        --no-auto-restart  Disable dev-server crash recovery for this session
 
   Keys (inside the dashboard)
     up/down, j/k      Select a project
-    d                 Start \`npm run dev\` and stream its logs into the pane
+    r                 Run \`npm run dev\` for the selected project
     e                 Open the project in your editor in a NEW terminal window
-    a                 Open your coding agent in a NEW terminal window
-    tab / S-tab       Cycle focus to the buttons (space/enter activates)
-    x                 Stop the selected project's dev server
-    r                 Reload the config file
+    c/x/o/f/k, a      Open claude / codex / opencode / freebuff / kilocode
+    s                 Change the selected project's status
+    tab / S-tab       Cycle focus: project list -> actions -> output
+    shift+x           Stop the selected project's dev server
     PgUp/PgDn, wheel  Scroll the dev server logs (G to follow the tail again)
+    /                 Search filter (type to filter, enter to commit)
+    1-5               Filter by status: all / live / exp / pend / scrap
     q                 Quit (stops every dev server it started)
 
   Config
@@ -47,7 +59,7 @@ const HELP = `
 `;
 
 function parseArgs(argv = []) {
-  const args = { help: false, version: false, setup: false, reset: false, list: false, noOpen: false, noUpdate: false };
+  const args = { help: false, version: false, setup: false, reset: false, scan: false, list: false, demo: false, noOpen: false, noUpdate: false, noAutoRestart: false };
   for (const raw of argv) {
     const arg = String(raw);
     switch (arg) {
@@ -67,15 +79,24 @@ function parseArgs(argv = []) {
       case '--reset':
         args.reset = true;
         break;
+      case '--scan':
+        args.scan = true;
+        break;
       case '-l':
       case '--list':
         args.list = true;
+        break;
+      case '--demo':
+        args.demo = true;
         break;
       case '--no-open':
         args.noOpen = true;
         break;
       case '--no-update':
         args.noUpdate = true;
+        break;
+      case '--no-auto-restart':
+        args.noAutoRestart = true;
         break;
       default:
         args.unknown = arg;
@@ -99,8 +120,8 @@ function needsTTY(what) {
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
   if (interactive) return false;
   process.stderr.write(
-    `termdeck needs an interactive terminal to ${what}.\n` +
-      `Open a real terminal and run it again, or use \`termdeck --list\` to inspect the saved config.\n`
+    `projctl needs an interactive terminal to ${what}.\n` +
+      `Open a real terminal and run it again, or use \`projctl --list\` to inspect the saved config.\n`
   );
   return true;
 }
@@ -134,20 +155,27 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   const existing = args.reset ? null : loadConfig({ onWarn: (message) => process.stderr.write(`${message}\n`) });
-  let config = existing;
+  let config = args.demo
+    ? loadConfigFromPath(DEMO_CONFIG_PATH, { onWarn: (message) => process.stderr.write(`${message}\n`) })
+    : existing;
 
-  if (args.list && !config) {
-    process.stderr.write(`No config found at ${getConfigPath()}. Run \`termdeck --setup\` in a real terminal first.\n`);
+  if (args.demo && !config) {
+    process.stderr.write(`Could not load the sample dataset at ${DEMO_CONFIG_PATH}.\n`);
     return 1;
   }
 
-  if (args.setup || args.reset || !config) {
+  if (args.list && !config) {
+    process.stderr.write(`No config found at ${getConfigPath()}. Run \`projctl --setup\` in a real terminal first.\n`);
+    return 1;
+  }
+
+  if (args.setup || args.scan || args.reset || !config) {
     if (needsTTY('run the setup wizard')) return 1;
     config = await runSetupWizard({ existing });
   }
 
   if (!config.projects.length) {
-    process.stderr.write('No projects configured. Run `termdeck --setup`.\n');
+    process.stderr.write('No projects configured. Run `projctl --setup`.\n');
     return 1;
   }
 
@@ -162,7 +190,7 @@ async function main(argv = process.argv.slice(2)) {
   // even when blessed has no usable terminal.
   // eslint-disable-next-line global-require
   const { launchDashboard } = require('./dashboard');
-  const controller = launchDashboard(config, { autoOpen: !args.noOpen });
+  const controller = launchDashboard(config, { autoOpen: !args.noOpen, autoRestart: !args.noAutoRestart });
 
   // Fire-and-forget auto-update: the registry check is capped at 2s and runs
   // in the background, and any banner is routed through the TUI footer so the
@@ -179,3 +207,18 @@ async function main(argv = process.argv.slice(2)) {
 }
 
 module.exports = { main, parseArgs, printProjects, HELP, getConfigPath };
+
+// projctl's bin entry point maps straight to this file, so running it directly
+// means "run the CLI". When required as a module (tests, embedding), do nothing.
+if (require.main === module) {
+  main(process.argv.slice(2))
+    .then((code) => {
+      // The dashboard keeps the process alive; only surface real exit codes.
+      if (typeof code === 'number' && code !== 0) process.exitCode = code;
+    })
+    .catch((err) => {
+      const message = err && err.message ? err.message : String(err);
+      process.stderr.write(`projctl: ${message}\n`);
+      process.exitCode = 1;
+    });
+}

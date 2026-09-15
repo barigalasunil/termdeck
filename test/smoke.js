@@ -106,18 +106,19 @@ async function main() {
     assert.strictEqual(widgets.projectList.items.length, 2, 'two project rows');
     const firstRow = widgets.projectList.ritems[0];
     assert.ok(firstRow.includes('fake-app'), firstRow);
-    assert.ok(firstRow.includes('[Live]'), firstRow);
+    assert.ok(firstRow.includes('{green-fg}●{/green-fg}'), firstRow);
 
     // 2. The selected project card shows name, status and description.
     const cardText = widgets.card.getContent();
+    assert.ok(cardText.includes('●'), 'status dot in the card');
     assert.ok(cardText.includes('fake-app'), cardText);
-    assert.ok(cardText.includes('● Live'), cardText);
+    assert.ok(cardText.includes('LIVE'), cardText);
     assert.ok(cardText.includes('fixture dev server'), cardText);
 
     // 3. CTA 1 through a REAL mouse click on the button widget.
     const devButton = widgets.buttons.dev;
     assert.ok(devButton.lpos, 'dev button has screen coordinates');
-    assert.ok(devButton.getText().includes('(d)'), 'dev button shows its key hint');
+    assert.ok(devButton.getText().includes('Run dev server'), 'dev button shows its action label');
     const clickX = Math.floor((devButton.lpos.xi + devButton.lpos.xl) / 2);
     const clickY = devButton.lpos.yi + 1;
     await clickAt(clickX, clickY);
@@ -125,14 +126,15 @@ async function main() {
     await waitFor(() => logView.lines.some((line) => line.includes('localhost:4599')), 30000, 'streamed logs');
 
     const logText = logView.lines.join('\n');
-    assert.ok(/\[termdeck\]/.test(logText), 'termdeck notes appear in the log pane');
+    assert.ok(/\[projctl\]/.test(logText), 'projctl notes appear in the log pane');
     assert.ok(logText.includes('VITE v5.0.0'), 'child stdout reached the log pane');
     assert.ok(!logText.includes('\u001b['), 'ANSI codes were stripped');
 
     // 4. Selecting the other project updates the card.
     widgets.projectList.select(1);
+    await sleep(200);
     assert.ok(widgets.card.getContent().includes('ghost-app'), widgets.card.getContent());
-    assert.ok(widgets.card.getContent().includes('● Experimental'));
+    assert.ok(widgets.card.getContent().includes('EXPERIMENTAL'), widgets.card.getContent());
 
     // 5. The mouse wheel pauses the log pane; shift+G resumes it.
     widgets.projectList.select(0);
