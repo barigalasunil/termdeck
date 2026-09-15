@@ -34,14 +34,15 @@ Reuse the existing `detectPackageManager(dir)` logic:
 
 ### Port (auto-assigned, never asked)
 
-Default `3000`. Bonus detection: read `<project>/package.json` `scripts` and
-scan each script string for a port token:
+Default `3000`. Bonus detection: read `<project>/package.json` `scripts`, scan
+each script string with three regexes (first match wins, in this order):
 
-- `-p 3001` / `--port 3001`
-- `PORT=3001`
-- a bare `:5173`-style port
+- `(?:-p|--port)\s+(\d+)` — e.g. `-p 3001`, `--port 3001`
+- `PORT=(\d+)` — e.g. `PORT=3001`
+- `:(\d{4,5})\b` — e.g. `http://localhost:5173`
 
-When a valid port (integer, 1–65535) is found, use it; otherwise `3000`.
+For each match candidate, validate the number is an integer in 1–65535; the
+first valid candidate wins. If none validates, fall back to `3000`.
 
 ### Re-runs (`--scan`) overwrite
 
