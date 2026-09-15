@@ -264,6 +264,31 @@ test('detectPackageManager prefers pnpm/yarn lockfiles, falls back to npm', () =
   }
 });
 
+test('detectPort reads a port from scripts or defaults to 3000', () => {
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'projctl-port-'));
+  const writeScripts = (scripts) => {
+    fs.rmSync(path.join(root, 'package.json'), { force: true });
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts }));
+  };
+  try {
+    assert.strictEqual(configModule.detectPort(root), 3000, 'no package.json -> 3000');
+    writeScripts({ dev: 'next dev' });
+    assert.strictEqual(configModule.detectPort(root), 3000, 'no port token -> 3000');
+    writeScripts({ dev: 'next dev -p 3001' });
+    assert.strictEqual(configModule.detectPort(root), 3001, '-p 3001');
+    writeScripts({ dev: 'vite --port 5173' });
+    assert.strictEqual(configModule.detectPort(root), 5173, '--port 5173');
+    writeScripts({ start: 'PORT=8080 node server.js' });
+    assert.strictEqual(configModule.detectPort(root), 8080, 'PORT=8080');
+    writeScripts({ dev: 'next dev -p 99999' });
+    assert.strictEqual(configModule.detectPort(root), 3000, 'out-of-range -> 3000');
+    writeScripts({ start: 'vite preview --port 4173' });
+    assert.strictEqual(configModule.detectPort(root), 4173, 'second script scanned too');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('mergeWizardProjects keeps unselected projects and preserves overrides', () => {
   const existing = [
     { name: 'kept', path: 'C:/proj/kept', status: 'live', agents: { claude: 'custom-claude' } },

@@ -325,6 +325,30 @@ function detectPackageManager(dir) {
 }
 
 /**
+ * Guess the dev-server port from `<dir>/package.json` scripts:
+ * `-p 3001`, `--port 3001`, `PORT=3001`, or a `:5173`-style token.
+ * Falls back to 3000 when nothing valid is found.
+ */
+function detectPort(dir) {
+  const found = [];
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    const scripts = Object.values(pkg.scripts || {}).map(String);
+    for (const script of scripts) {
+      const m =
+        script.match(/(?:-p|--port)\s+(\d+)/) ||
+        script.match(/PORT=(\d+)/) ||
+        script.match(/:(\d{4,5})\b/);
+      if (m) found.push(Number(m[1]));
+    }
+  } catch (_) {
+    /* missing or unreadable package.json */
+  }
+  const port = found.find((n) => Number.isInteger(n) && n > 0 && n < 65536);
+  return port || 3000;
+}
+
+/**
  * Merge the projects the wizard just produced into the existing config list.
  * - Incoming entries replace their existing twin (by path) — port/status/other
  *   fields the user just set win — but hand-written per-project overrides such
@@ -572,6 +596,7 @@ module.exports = {
   scanDirectories,
   scanProjectCandidates,
   detectPackageManager,
+  detectPort,
   mergeWizardProjects,
   isProjectFolder,
   isDirectory,
