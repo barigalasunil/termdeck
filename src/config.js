@@ -327,25 +327,33 @@ function detectPackageManager(dir) {
 /**
  * Guess the dev-server port from `<dir>/package.json` scripts:
  * `-p 3001`, `--port 3001`, `PORT=3001`, or a `:5173`-style token.
+ * Explicit flag tokens anywhere take precedence over `:<digits>` URL-style
+ * tokens; a URL-style token is only used when no explicit flag is detectable.
  * Falls back to 3000 when nothing valid is found.
  */
 function detectPort(dir) {
-  const found = [];
+  const flags = [];
+  const urls = [];
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
     const scripts = Object.values(pkg.scripts || {}).map(String);
     for (const script of scripts) {
-      const m =
-        script.match(/(?:-p|--port)\s+(\d+)/) ||
-        script.match(/PORT=(\d+)/) ||
-        script.match(/:(\d{4,5})\b/);
-      if (m) found.push(Number(m[1]));
+      const flag = script.match(/(?:-p|--port)\s+(\d+)/) || script.match(/PORT=(\d+)/);
+      if (flag) {
+        flags.push(Number(flag[1]));
+        continue;
+      }
+      const url = script.match(/:(\d{4,5})\b/);
+      if (url) urls.push(Number(url[1]));
     }
   } catch (_) {
     /* missing or unreadable package.json */
   }
-  const port = found.find((n) => Number.isInteger(n) && n > 0 && n < 65536);
-  return port || 3000;
+  const valid = (n) => Number.isInteger(n) && n > 0 && n < 65536;
+  const explicit = flags.find(valid);
+  if (explicit !== undefined) return explicit;
+  const urlPort = urls.find(valid);
+  return urlPort || 3000;
 }
 
 /**

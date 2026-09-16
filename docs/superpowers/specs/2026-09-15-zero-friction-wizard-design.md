@@ -35,14 +35,20 @@ Reuse the existing `detectPackageManager(dir)` logic:
 ### Port (auto-assigned, never asked)
 
 Default `3000`. Bonus detection: read `<project>/package.json` `scripts`, scan
-each script string with three regexes (first match wins, in this order):
+each script string for a port candidate using the explicit flag regexes:
 
 - `(?:-p|--port)\s+(\d+)` — e.g. `-p 3001`, `--port 3001`
 - `PORT=(\d+)` — e.g. `PORT=3001`
+
+and the URL-style fallback regex:
+
 - `:(\d{4,5})\b` — e.g. `http://localhost:5173`
 
-For each match candidate, validate the number is an integer in 1–65535; the
-first valid candidate wins. If none validates, fall back to `3000`.
+Explicit `-p`/`--port`/`PORT=` candidates anywhere take precedence over
+`:<digits>` URL-style tokens; a URL-style token is only used when no explicit
+flag is detectable. For each candidate, validate the number is an integer in
+1–65535; the first valid candidate of the winning kind wins. If none
+validates, fall back to `3000`.
 
 ### Re-runs (`--scan`) overwrite
 

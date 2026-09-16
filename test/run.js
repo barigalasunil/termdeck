@@ -284,6 +284,10 @@ test('detectPort reads a port from scripts or defaults to 3000', () => {
     assert.strictEqual(configModule.detectPort(root), 3000, 'out-of-range -> 3000');
     writeScripts({ start: 'vite preview --port 4173' });
     assert.strictEqual(configModule.detectPort(root), 4173, 'second script scanned too');
+    writeScripts({ seed: 'curl http://api.example.com:8081/health', dev: 'next dev -p 9000' });
+    assert.strictEqual(configModule.detectPort(root), 9000, 'explicit -p beats URL colon token from an earlier script');
+    writeScripts({ seed: 'curl http://api.example.com:8081/health' });
+    assert.strictEqual(configModule.detectPort(root), 8081, 'URL colon token still detected when no explicit flag exists');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
