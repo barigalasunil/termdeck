@@ -37,9 +37,9 @@ const AGENT_COMMANDS = {
 /** Per-newest-session tail state: key -> { watcher, lastSize, offset }. */
 const tailing = new Map();
 
-/** Log files live under ~/.projctl/agents so tee writes always succeed. */
+/** Log files live under ~/.termdeck/agents so tee writes always succeed. */
 function logDir() {
-  return path.join(os.homedir(), '.projctl', 'agents');
+  return path.join(os.homedir(), '.termdeck', 'agents');
 }
 
 /** project.name + agent -> a filesystem-safe log file name. */

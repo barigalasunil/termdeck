@@ -33,7 +33,7 @@ Add to `test/run.js` directly after the `detectPackageManager` test (after line 
 
 ```js
 test('detectPort reads a port from scripts or defaults to 3000', () => {
-  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'projctl-port-'));
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'termdeck-port-'));
   const writeScripts = (scripts) => {
     fs.rmSync(path.join(root, 'package.json'), { force: true });
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts }));

@@ -2,17 +2,17 @@
 'use strict';
 
 /**
- * projctl CLI.
+ * termdeck CLI.
  *
- * `projctl`                launch the dashboard (runs setup on first use)
- * `projctl --setup`        re-run the setup wizard
- * `projctl --scan`         scan for projects and merge them into the config
- * `projctl --reset`        delete the config file and run setup again
- * `projctl --list`         print the configured projects and exit (no TUI)
- * `projctl --demo`         launch with the shipped 14-project sample dataset
- * `projctl --no-open`      do not auto-open the browser for dev servers
- * `projctl --no-update`    skip the automatic background update check
- * `projctl --no-auto-restart`  disable dev-server crash recovery for this session
+ * `termdeck`                launch the dashboard (runs setup on first use)
+ * `termdeck --setup`        re-run the setup wizard
+ * `termdeck --scan`         scan for projects and merge them into the config
+ * `termdeck --reset`        delete the config file and run setup again
+ * `termdeck --list`         print the configured projects and exit (no TUI)
+ * `termdeck --demo`         launch with the shipped 14-project sample dataset
+ * `termdeck --no-open`      do not auto-open the browser for dev servers
+ * `termdeck --no-update`    skip the automatic background update check
+ * `termdeck --no-auto-restart`  disable dev-server crash recovery for this session
  */
 
 const fs = require('fs');
@@ -23,10 +23,10 @@ const { getConfigPath, configExists, loadConfig, loadConfigFromPath, runSetupWiz
 const DEMO_CONFIG_PATH = path.join(__dirname, '..', 'sample-config.json');
 
 const HELP = `
-  projctl - a terminal dashboard for your local dev projects
+  termdeck - a terminal dashboard for your local dev projects
 
   Usage
-    $ projctl [options]
+    $ termdeck [options]
 
   Options
     -h, --help        Show this help
@@ -120,8 +120,8 @@ function needsTTY(what) {
   const interactive = process.stdin.isTTY && process.stdout.isTTY;
   if (interactive) return false;
   process.stderr.write(
-    `projctl needs an interactive terminal to ${what}.\n` +
-      `Open a real terminal and run it again, or use \`projctl --list\` to inspect the saved config.\n`
+    `termdeck needs an interactive terminal to ${what}.\n` +
+      `Open a real terminal and run it again, or use \`termdeck --list\` to inspect the saved config.\n`
   );
   return true;
 }
@@ -165,7 +165,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   if (args.list && !config) {
-    process.stderr.write(`No config found at ${getConfigPath()}. Run \`projctl --setup\` in a real terminal first.\n`);
+    process.stderr.write(`No config found at ${getConfigPath()}. Run \`termdeck --setup\` in a real terminal first.\n`);
     return 1;
   }
 
@@ -175,7 +175,7 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   if (!config.projects.length) {
-    process.stderr.write('No projects configured. Run `projctl --setup`.\n');
+    process.stderr.write('No projects configured. Run `termdeck --setup`.\n');
     return 1;
   }
 
@@ -208,7 +208,7 @@ async function main(argv = process.argv.slice(2)) {
 
 module.exports = { main, parseArgs, printProjects, HELP, getConfigPath };
 
-// projctl's bin entry point maps straight to this file, so running it directly
+// termdeck's bin entry point maps straight to this file, so running it directly
 // means "run the CLI". When required as a module (tests, embedding), do nothing.
 if (require.main === module) {
   main(process.argv.slice(2))
@@ -218,7 +218,7 @@ if (require.main === module) {
     })
     .catch((err) => {
       const message = err && err.message ? err.message : String(err);
-      process.stderr.write(`projctl: ${message}\n`);
+      process.stderr.write(`termdeck: ${message}\n`);
       process.exitCode = 1;
     });
 }

@@ -1,17 +1,17 @@
 'use strict';
 
 /**
- * Silent auto-updater for projctl-cli.
+ * Silent auto-updater for termdeck-cli.
  *
  * On every interactive dashboard launch we ask the npm registry for the latest
- * projctl-cli version. When a newer one exists we print one short notice, kick
- * off a detached `npm install -g projctl-cli@latest` in the background and let
+ * termdeck-cli version. When a newer one exists we print one short notice, kick
+ * off a detached `npm install -g termdeck-cli@latest` in the background and let
  * the user keep working. Every failure path (offline, timeout, registry hiccup,
  * spawn error) is silent: the app simply runs with the installed version.
  *
  * Deliberately dependency-free on purpose: the check is a plain stdlib `https`
  * GET against the npm registry (configurable for tests via TERMDECK_REGISTRY_URL)
- * and the install reuses `cross-spawn`, which projctl-cli already depends on.
+ * and the install reuses `cross-spawn`, which termdeck-cli already depends on.
  */
 
 const http = require('http');
@@ -40,7 +40,7 @@ function clientFor(url) {
 }
 
 /**
- * Fetch the latest published version of projctl-cli from the registry.
+ * Fetch the latest published version of termdeck-cli from the registry.
  * Resolves with the version string, or `null` on any failure (offline,
  * timeout, non-2xx, bad JSON). Never rejects and never takes longer than the
  * configured timeout.
@@ -97,7 +97,7 @@ function fetchLatestVersion(options = {}) {
 }
 
 /**
- * Start a silent, detached `npm install -g projctl-cli@latest` in the
+ * Start a silent, detached `npm install -g termdeck-cli@latest` in the
  * background. The child is `unref()`ed so the dashboard can quit while npm
  * keeps working. Returns the child, or `null` when spawning failed.
  */

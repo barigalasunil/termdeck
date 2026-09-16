@@ -126,7 +126,7 @@ async function main() {
     await waitFor(() => logView.lines.some((line) => line.includes('localhost:4599')), 30000, 'streamed logs');
 
     const logText = logView.lines.join('\n');
-    assert.ok(/\[projctl\]/.test(logText), 'projctl notes appear in the log pane');
+    assert.ok(/\[termdeck\]/.test(logText), 'termdeck notes appear in the log pane');
     assert.ok(logText.includes('VITE v5.0.0'), 'child stdout reached the log pane');
     assert.ok(!logText.includes('\u001b['), 'ANSI codes were stripped');
 

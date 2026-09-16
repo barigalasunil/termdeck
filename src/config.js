@@ -3,7 +3,7 @@
 /**
  * Configuration + first-run setup.
  *
- * The config lives at `~/.projctl-config.json` (override with the
+ * The config lives at `~/.termdeck-config.json` (override with the
  * TERMDECK_CONFIG environment variable, which is handy for testing).
  */
 
@@ -17,7 +17,7 @@ const CONFIG_VERSION = 2;
 const STATUSES = ['Experimental', 'Live', 'Working', 'Pending'];
 
 /**
- * Modern short status vocabulary used by the projctl dashboard UI. The legacy
+ * Modern short status vocabulary used by the termdeck dashboard UI. The legacy
  * `STATUSES` labels remain accepted on read for backward compatibility; the
  * wizard vocabulary fully migrates to these when the dashboard is rewritten.
  */
@@ -58,7 +58,7 @@ const IGNORED_DIRS = new Set([
 ]);
 
 function getConfigPath() {
-  return process.env.TERMDECK_CONFIG || path.join(os.homedir(), '.projctl-config.json');
+  return process.env.TERMDECK_CONFIG || path.join(os.homedir(), '.termdeck-config.json');
 }
 
 function configExists() {
@@ -103,7 +103,7 @@ function normalizeProject(raw, root) {
     ...(raw.devCommand ? { devCommand: raw.devCommand } : {}),
     ...(raw.editorCommand ? { editorCommand: raw.editorCommand } : {}),
     ...(raw.agentCommand ? { agentCommand: raw.agentCommand } : {}),
-    // projctl v2 additions (all optional).
+    // termdeck v2 additions (all optional).
     ...(raw.packageManager ? { packageManager: raw.packageManager } : {}),
     ...(typeof raw.stack === 'string' ? { stack: raw.stack } : {}),
     ...(raw.branch ? { branch: raw.branch } : {}),
@@ -144,7 +144,7 @@ function loadConfigFromPath(file, { onWarn = () => {} } = {}) {
   }
 
   if (!parsed || !Array.isArray(parsed.projects)) {
-    onWarn(`${file} does not look like a projctl config. Starting setup again.`);
+    onWarn(`${file} does not look like a termdeck config. Starting setup again.`);
     return null;
   }
 
@@ -158,7 +158,7 @@ function loadConfigFromPath(file, { onWarn = () => {} } = {}) {
     editorCommand: parsed.editorCommand || 'code .',
     agentCommand: parsed.agentCommand || 'opencode',
     openBrowser: parsed.openBrowser !== false,
-    // projctl v2 flags (additive; safe defaults when a config predates them).
+    // termdeck v2 flags (additive; safe defaults when a config predates them).
     autoRestart: parsed.autoRestart !== false,
     demoMode: parsed.demoMode === true,
     projects: parsed.projects.map((p) => normalizeProject(p, root)).filter(Boolean),
@@ -471,7 +471,7 @@ async function askProjects(root, existing) {
     {
       type: 'checkbox',
       name: 'selected',
-      message: `Select the projects to show in projctl (${folders.length} projects found):`,
+      message: `Select the projects to show in termdeck (${folders.length} projects found):`,
       pageSize: 16,
       choices: folders.map((folder) => ({
         name: folder.name,
@@ -525,8 +525,8 @@ async function askDetails(selected, existing) {
  * Persists the result to the config file and returns it.
  */
 async function runSetupWizard({ existing = null, stdout = process.stdout } = {}) {
-  stdout.write('\n  projctl \u2014 first run setup\n');
-  stdout.write('  Answer a few questions and we will remember them in ~/.projctl-config.json\n\n');
+  stdout.write('\n  termdeck \u2014 first run setup\n');
+  stdout.write('  Answer a few questions and we will remember them in ~/.termdeck-config.json\n\n');
 
   const root = await askRoot(existing);
   // `askProjects` may re-ask for the root when the first one had no folders.
@@ -559,7 +559,7 @@ async function runSetupWizard({ existing = null, stdout = process.stdout } = {})
   if (!save) throw new Error('Setup cancelled: nothing was saved.');
 
   saveConfig(config);
-  stdout.write(`\n  Saved. Run the dashboard any time with: projctl\n\n`);
+  stdout.write(`\n  Saved. Run the dashboard any time with: termdeck\n\n`);
   return loadConfig() || config;
 }
 

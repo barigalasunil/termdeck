@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * The projctl TUI.
+ * The termdeck TUI.
  *
  * 12x12 blessed-contrib grid layout:
  *
  *   +-------------------------------------------------------------------+
- *   | header: projctl · [ALL 14][LIVE 6]… /search · time · ● DAEMON OFF  |
+ *   | header: termdeck · [ALL 14][LIVE 6]… /search · time · ● DAEMON OFF  |
  *   +---------------------------------+---------------------------------+
  *   | PROJECTS (14 repos)             | DETAILS: hyperion-core       …  |
  *   |  ● hyperion-core     12m ago    |  path / status / branch / port  |
@@ -93,7 +93,7 @@ function launchDashboard(config, options = {}) {
   const screen = blessed.screen({
     smartCSR: true,
     fullUnicode: true,
-    title: 'projctl',
+    title: 'termdeck',
     mouse: true,
     dockBorders: true,
     autoPadding: true,
@@ -137,7 +137,7 @@ function launchDashboard(config, options = {}) {
   }
 
   const header = grid.set(0, 0, 1, 12, blessed.box, { tags: true });
-  styleCell(header, ' projctl ');
+  styleCell(header, ' termdeck ');
 
   const projectList = grid.set(1, 0, 10, 5, blessed.list, {
     tags: true,
@@ -292,7 +292,7 @@ function launchDashboard(config, options = {}) {
   }
 
   function updateHeader() {
-    const left = ` {bold}projctl{/bold}  ${filterChips()}   {white-fg}${escapeBraces(searchLabel())}{/white-fg}`;
+    const left = ` {bold}termdeck{/bold}  ${filterChips()}   {white-fg}${escapeBraces(searchLabel())}{/white-fg}`;
     const right = ` {gray-fg}${timestamp()}{/gray-fg}  {green-fg}● DAEMON OFF{/green-fg} `;
     header.setContent(`${left}${right}`);
   }
@@ -352,7 +352,7 @@ function launchDashboard(config, options = {}) {
   function updateCard() {
     const project = selectedProject();
     if (!project) {
-      card.setContent(' {gray-fg}No projects configured. Run `projctl --setup`.{/gray-fg}');
+      card.setContent(' {gray-fg}No projects configured. Run `termdeck --setup`.{/gray-fg}');
       screen.render();
       return;
     }
@@ -460,7 +460,7 @@ function launchDashboard(config, options = {}) {
   function appendLog(project, line, stream = 'stdout') {
     const prefix = `{gray-fg}${timestamp()}{/gray-fg} {${colorFor(project)}-fg}${escapeBraces(truncate(project.name, 10))}{/${colorFor(project)}-fg}`;
     if (stream === 'system') {
-      logView.push(`${prefix} {cyan-fg}[projctl]{/cyan-fg} ${line}`);
+      logView.push(`${prefix} {cyan-fg}[termdeck]{/cyan-fg} ${line}`);
       return;
     }
     const marker = stream === 'stderr' ? '{red-fg}✗{/red-fg} ' : '';
@@ -555,7 +555,7 @@ function launchDashboard(config, options = {}) {
     const index = MODERN_STATUSES.indexOf(current);
     const next = MODERN_STATUSES[(index + 1) % MODERN_STATUSES.length];
     project.status = next;
-    appendLog(project, `{cyan-fg}[projctl]{/cyan-fg} status changed to {bold}${next}{/bold}`, 'system');
+    appendLog(project, `{cyan-fg}[termdeck]{/cyan-fg} status changed to {bold}${next}{/bold}`, 'system');
     setStatus(`${project.name}: status \u2192 ${next}`);
     if (!config.demoMode) {
       try { saveConfig(config); } catch (_) { /* best effort */ }
@@ -769,7 +769,7 @@ function launchDashboard(config, options = {}) {
   const onFatal = (err) => {
     destroy();
     // eslint-disable-next-line no-console
-    console.error('\nprojctl crashed:', err && err.stack ? err.stack : err);
+    console.error('\ntermdeck crashed:', err && err.stack ? err.stack : err);
     process.exit(1);
   };
   process.once('uncaughtException', onFatal);
@@ -787,8 +787,8 @@ function launchDashboard(config, options = {}) {
   projectList.focus();
   refreshList();
   updateCard();
-  appendLog({ name: 'projctl', path: '__projctl__' }, `{bold}projctl{/bold} ready — ${projects.length} projects from ${escapeBraces(displayPath(config.root, config.root))}`, 'system');
-  appendLog({ name: 'projctl', path: '__projctl__' }, `pick a project and press {bold}r{/bold} for the dev server, {bold}e{/bold} for your editor, {bold}c/x/o/f/k{/bold} for an agent.`, 'system');
+  appendLog({ name: 'termdeck', path: '__termdeck__' }, `{bold}termdeck{/bold} ready — ${projects.length} projects from ${escapeBraces(displayPath(config.root, config.root))}`, 'system');
+  appendLog({ name: 'termdeck', path: '__termdeck__' }, `pick a project and press {bold}r{/bold} for the dev server, {bold}e{/bold} for your editor, {bold}c/x/o/f/k{/bold} for an agent.`, 'system');
   if (config.demoMode) {
     const demoProject = projects[0] || { name: 'hyperion-core', path: 'demo' };
     for (const sample of SAMPLE_LOG_LINES) {

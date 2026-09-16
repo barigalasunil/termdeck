@@ -232,7 +232,7 @@ test('scanDirectories lists folders and skips noise', () => {
 });
 
 test('scanProjectCandidates keeps only folders with .git or package.json', () => {
-  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'projctl-cands-'));
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'termdeck-cands-'));
   try {
     fs.mkdirSync(path.join(root, 'gitrepo', '.git'), { recursive: true });
     fs.mkdirSync(path.join(root, 'npmrepo'));
@@ -249,7 +249,7 @@ test('scanProjectCandidates keeps only folders with .git or package.json', () =>
 });
 
 test('detectPackageManager prefers pnpm/yarn lockfiles, falls back to npm', () => {
-  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'projctl-pm-'));
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'termdeck-pm-'));
   try {
     fs.writeFileSync(path.join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 6');
     assert.strictEqual(configModule.detectPackageManager(root), 'pnpm');
@@ -265,7 +265,7 @@ test('detectPackageManager prefers pnpm/yarn lockfiles, falls back to npm', () =
 });
 
 test('detectPort reads a port from scripts or defaults to 3000', () => {
-  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'projctl-port-'));
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'termdeck-port-'));
   const writeScripts = (scripts) => {
     fs.rmSync(path.join(root, 'package.json'), { force: true });
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts }));
@@ -651,9 +651,9 @@ test('startMonitoring reports running:false when the port has no process', async
  * auto-updater
  * ------------------------------------------------------------------ */
 
-test('the auto-updater is hard-wired to the projctl-cli package', () => {
-  assert.strictEqual(updater.PACKAGE_NAME, 'projctl-cli');
-  assert.ok(updater.DEFAULT_REGISTRY_URL.endsWith('/projctl-cli/latest'), updater.DEFAULT_REGISTRY_URL);
+test('the auto-updater is hard-wired to the termdeck-cli package', () => {
+  assert.strictEqual(updater.PACKAGE_NAME, 'termdeck-cli');
+  assert.ok(updater.DEFAULT_REGISTRY_URL.endsWith('/termdeck-cli/latest'), updater.DEFAULT_REGISTRY_URL);
 });
 
 /* ------------------------------------------------------------------ *
@@ -906,7 +906,7 @@ async function startRegistry(handler) {
   server.on('connection', (socket) => sockets.add(socket));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
-    url: `http://127.0.0.1:${server.address().port}/projctl/latest`,
+    url: `http://127.0.0.1:${server.address().port}/termdeck/latest`,
     close: () =>
       new Promise((resolve) => {
         for (const socket of sockets) socket.destroy();
@@ -964,7 +964,7 @@ test('installUpdate runs npm install -g via cross-spawn, detached and silent', (
 
   assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0].bin, 'npm');
-  assert.deepStrictEqual(calls[0].args, ['install', '-g', 'projctl-cli@latest']);
+  assert.deepStrictEqual(calls[0].args, ['install', '-g', 'termdeck-cli@latest']);
   assert.strictEqual(calls[0].opts.detached, true, 'install survives the dashboard quitting');
   assert.strictEqual(calls[0].opts.stdio, 'ignore', 'install is silent');
   assert.strictEqual(fakeChild.unrefCalled, true);

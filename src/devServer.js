@@ -159,7 +159,7 @@ class DevServerManager {
         this.onExit(project, { code, signal, stoppedByUs, restart: true, attempt, max: this.maxRestarts });
         const timer = setTimeout(() => {
           if (this.servers.has(project.path)) return;
-          this.log(project, `{cyan-fg}[projctl]{/cyan-fg} auto-restarting dev server`, 'system');
+          this.log(project, `{cyan-fg}[termdeck]{/cyan-fg} auto-restarting dev server`, 'system');
           this.start(project);
         }, this.restartDelayMs);
         if (timer.unref) timer.unref();
