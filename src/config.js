@@ -394,6 +394,48 @@ function isDirectory(target) {
   }
 }
 
+/**
+ * Silent auto-discovery: shallow-scan `config.root` for project folders (a
+ * `.git` directory or a `package.json` manifest) and return the ones that are
+ * not in the config yet, with quiet defaults so they never clutter the Live
+ * view (status `pend`, auto-detected port and package manager).
+ *
+ * Runs on every dashboard launch. Deliberately shallow (no git parsing here;
+ * that happens lazily when the user selects the project in the UI) and
+ * deliberately non-destructive: existing entries are returned untouched, so a
+ * deleted folder never removes anything from the config.
+ *
+ * Never throws: an unreadable or missing root simply discovers nothing.
+ *
+ * @param {{root?: string, projects?: object[]}} config
+ * @returns {{added: object[], projects: object[]}} the new entries and the
+ *   merged list (existing projects first, new ones appended in name order).
+ */
+function autoDiscoverProjects(config) {
+  const existing = Array.isArray(config && config.projects) ? config.projects : [];
+  const known = new Set(existing.map((p) => p.path));
+
+  let candidates;
+  try {
+    candidates = scanProjectCandidates(config.root);
+  } catch (_) {
+    return { added: [], projects: existing };
+  }
+
+  const added = candidates
+    .filter((entry) => !known.has(entry.path))
+    .map((entry) => ({
+      name: entry.name,
+      path: entry.path,
+      status: 'pend',
+      info: '',
+      port: detectPort(entry.path),
+      packageManager: detectPackageManager(entry.path),
+    }));
+
+  return { added, projects: added.length ? [...existing, ...added] : existing };
+}
+
 /** Tilde/relative paths typed by hand in the wizard. */
 function resolveUserPath(input) {
   let value = String(input || '').trim().replace(/^"(.*)"$/, '$1');
@@ -582,6 +624,7 @@ module.exports = {
   scanProjectCandidates,
   detectPackageManager,
   detectPort,
+  autoDiscoverProjects,
   mergeWizardProjects,
   isProjectFolder,
   isDirectory,

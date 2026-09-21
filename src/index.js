@@ -13,12 +13,16 @@
  * `termdeck --no-open`      do not auto-open the browser for dev servers
  * `termdeck --no-update`    skip the automatic background update check
  * `termdeck --no-auto-restart`  disable dev-server crash recovery for this session
+ *
+ * Every interactive launch silently re-scans the configured root directory and
+ * adds any new project folders it finds (status `pend`, auto-detected port and
+ * package manager) before the dashboard opens. See `autoDiscoverProjects`.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const { getConfigPath, configExists, loadConfig, loadConfigFromPath, runSetupWizard } = require('./config');
+const { getConfigPath, configExists, loadConfig, loadConfigFromPath, runSetupWizard, autoDiscoverProjects, saveConfig } = require('./config');
 
 const DEMO_CONFIG_PATH = path.join(__dirname, '..', 'sample-config.json');
 
@@ -52,6 +56,10 @@ const HELP = `
     /                 Search filter (type to filter, enter to commit)
     1-5               Filter by status: all / live / exp / pend / scrap
     q                 Quit (stops every dev server it started)
+
+  Discovery
+    On every launch termdeck quietly re-scans the configured root and adds any
+    new project folders (with .git or package.json) as pending projects.
 
   Config
     ${getConfigPath()}
@@ -186,11 +194,37 @@ async function main(argv = process.argv.slice(2)) {
 
   if (needsTTY('render the dashboard')) return 1;
 
+  // Silent auto-discovery: shallow-scan the configured root on every launch
+  // and fold any new project folders into the config. This is sync and fast
+  // (one readdir + a couple of stats per folder, no git parsing), never
+  // prompts, and never removes anything. The only feedback is a transient
+  // footer toast when the dashboard comes up; failures are swallowed so a
+  // bad root can never block the launch.
+  let bootStatus = null;
+  if (config.root && !config.demoMode) {
+    try {
+      const discovered = autoDiscoverProjects(config);
+      if (discovered.added.length) {
+        config.projects = discovered.projects;
+        const names = discovered.added.map((p) => p.name).join(', ');
+        const count = discovered.added.length;
+        bootStatus = `\u2728 Discovered and added ${count} new project${count === 1 ? '' : 's'}: ${names}`;
+        try {
+          saveConfig(config);
+        } catch (_) {
+          /* the dashboard still runs with the in-memory config */
+        }
+      }
+    } catch (_) {
+      /* discovery must never block the launch */
+    }
+  }
+
   // Loaded lazily so `--help`, `--version` and `--list` stay fast and work
   // even when blessed has no usable terminal.
   // eslint-disable-next-line global-require
   const { launchDashboard } = require('./dashboard');
-  const controller = launchDashboard(config, { autoOpen: !args.noOpen, autoRestart: !args.noAutoRestart });
+  const controller = launchDashboard(config, { autoOpen: !args.noOpen, autoRestart: !args.noAutoRestart, bootStatus });
 
   // Fire-and-forget auto-update: the registry check is capped at 2s and runs
   // in the background, and any banner is routed through the TUI footer so the

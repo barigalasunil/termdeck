@@ -821,6 +821,14 @@ function launchDashboard(config, options = {}) {
 
   screen.render();
 
+  // One-shot boot toast (e.g. "✨ Discovered and added 2 new projects") from
+  // the launch flow's silent auto-discovery. Routed through setStatus so it
+  // lands in the footer and clears itself like every other status message.
+  if (options.bootStatus) {
+    setStatus(options.bootStatus);
+    appendLog({ name: 'termdeck', path: '__termdeck__' }, options.bootStatus, 'system');
+  }
+
   return {
     screen,
     widgets: { header, projectList, card, logBox, footer, buttons },

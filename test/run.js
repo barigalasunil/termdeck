@@ -293,6 +293,50 @@ test('detectPort reads a port from scripts or defaults to 3000', () => {
   }
 });
 
+test('autoDiscoverProjects adds new project folders with quiet defaults', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'termdeck-auto-'));
+  try {
+    fs.mkdirSync(path.join(root, 'gitrepo', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'npmrepo'));
+    fs.writeFileSync(path.join(root, 'npmrepo', 'package.json'), JSON.stringify({ scripts: { dev: 'next dev -p 3001' } }));
+    fs.writeFileSync(path.join(root, 'npmrepo', 'pnpm-lock.yaml'), 'lockfileVersion: 6');
+    fs.mkdirSync(path.join(root, 'plain')); // no markers -> ignored
+    fs.mkdirSync(path.join(root, 'known', '.git'), { recursive: true });
+
+    const config = { root, projects: [{ name: 'known', path: path.join(root, 'known'), status: 'live', info: 'existing' }] };
+    const result = configModule.autoDiscoverProjects(config);
+
+    assert.deepStrictEqual(result.added.map((p) => p.name).sort(), ['gitrepo', 'npmrepo']);
+    assert.strictEqual(result.projects.length, 3, 'existing projects are kept and new ones appended');
+
+    const gitrepo = result.added.find((p) => p.name === 'gitrepo');
+    assert.strictEqual(gitrepo.status, 'pend', 'new projects start pending so Live stays uncluttered');
+    assert.strictEqual(gitrepo.port, 3000, 'no scripts -> default port 3000');
+    assert.strictEqual(gitrepo.packageManager, 'npm');
+
+    const npmrepo = result.added.find((p) => p.name === 'npmrepo');
+    assert.strictEqual(npmrepo.port, 3001, 'port auto-detected from scripts');
+    assert.strictEqual(npmrepo.packageManager, 'pnpm', 'package manager auto-detected from the lockfile');
+
+    // Existing entries are returned untouched, never rewritten or re-sorted.
+    assert.strictEqual(result.projects[0], config.projects[0]);
+
+    // Second run with the merged list is a no-op (idempotent).
+    const second = configModule.autoDiscoverProjects({ root, projects: result.projects });
+    assert.deepStrictEqual(second.added, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('autoDiscoverProjects discovers nothing for a missing root and never removes projects', () => {
+  const existing = [{ name: 'keep', path: 'C:/keep', status: 'live' }];
+  const config = { root: path.join(os.tmpdir(), 'termdeck-missing-root-xyz'), projects: existing };
+  const result = configModule.autoDiscoverProjects(config);
+  assert.deepStrictEqual(result.added, []);
+  assert.deepStrictEqual(result.projects, existing);
+});
+
 test('mergeWizardProjects keeps unselected projects and preserves overrides', () => {
   const existing = [
     { name: 'kept', path: 'C:/proj/kept', status: 'live', agents: { claude: 'custom-claude' } },
