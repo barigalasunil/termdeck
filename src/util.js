@@ -54,9 +54,10 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 
 /**
  * `4:42:09 PM` — 12-hour clock for a Date, ISO string or epoch ms.
+ * Defaults to the current time when no value is given.
  * Returns null when the value cannot be parsed.
  */
-function formatTime(value) {
+function formatTime(value = new Date()) {
   if (value == null || value === '') return null;
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
@@ -69,7 +70,7 @@ function formatTime(value) {
 }
 
 /** `May 18, 2025 4:42:09 PM` — 12-hour time with the date kept visible. */
-function formatTimestamp(value) {
+function formatTimestamp(value = new Date()) {
   if (value == null || value === '') return null;
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;

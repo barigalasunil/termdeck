@@ -7,11 +7,9 @@
  * exactly the rows it needs, with zero gaps between panes:
  *
  *   +-------------------------------------------------------------------+
- *   |  May 18, 2025 4:42:09 PM                                          |
- *   |  ##### ##### ####. #...# ###.. ##### ####. #...#                  |
- *   |  ..#.. ####. #...# ##.## #...# ####. #.... #..#.                   |
- *   |  ..#.. #.... ###.. #.#.# #...# #.... #.... ###..                   |
- *   |  ..#.. ##### #..#. #...# ###.. ##### ####. #..#.                   |
+ *   |                             TERMDECK                              |
+ *   |                       Sep 21, 2026 3:30:59 PM                     |
+ *   +-------------------------------------------------------------------+
  *   | [ALL 14] [LIVE 6] [EXP 4] …   /search (regex)                     |
  *   +---------------------------------+---------------------------------+
  *   | PROJECTS (14)                   | DETAILS: hyperion-core          |
@@ -56,7 +54,6 @@ const THEME = {
   text: '#cdd6f4',      // general text (light gray-white)
   textDim: '#9399b2',   // secondary text (timestamps, labels)
   border: '#45475a',    // thin, unobtrusive box borders
-  logoFg: '#38bdf8',    // block-letter wordmark (bright cyan)
   accentBg: '#3b82f6',  // selected-project highlight (bright blue)
   accentFg: '#ffffff',
 };
@@ -189,67 +186,31 @@ function launchDashboard(config, options = {}) {
     return el;
   }
 
-  // Top status line: a flat 1-row strip holding the clock/date. The big
-  // block-letter "TERMDECK" wordmark (banner below) sits under it, then the
-  // stats bar — all back-to-back with zero gaps.
-  const header = blessed.box({
+  // Full-width masthead. A green-outlined title strip on the dark terminal
+  // background: the TERMDECK wordmark sits centred with the live clock below
+  // it, and vertical padding makes the strip read as a real header. No solid
+  // fill — just a clean line border and green text. updateHeader() refreshes
+  // the clock line every second. The box is created once and only its content
+  // is mutated — recreating it per tick leaked the renderer.
+  const TITLE_TEXT = ' TERMDECK ';
+  const TITLE_HEIGHT = 6; // line border + vertical padding + title + clock
+  const HEADER_ACCENT = '#00ff00';
+  const titleBox = blessed.box({
     parent: screen,
     top: 0,
     left: 0,
     width: '100%',
-    height: 1,
+    height: TITLE_HEIGHT,
     tags: true,
-    style: { bg: THEME.bg },
+    padding: { top: 1, bottom: 1 },
+    border: { type: 'line', fg: HEADER_ACCENT },
+    style: { fg: HEADER_ACCENT, bold: true },
   });
 
-  /**
-   * Logo wordmark: hardcoded 4-row block letters so "TERMDECK" reads as a
-   * real logo without needing a font (no figlet dependency). Letters are 5
-   * chars wide plus a 1-char gap; renderBanner() centres the whole 47-char
-   * wordmark and is re-run on every header refresh so a resize keeps it in
-   * the middle. (Recreating a blessed element per updateHeader() leaked/looped
-   * the renderer, so the box is created once and only its content is mutated.)
-   */
-  const LOGO_TEXT = 'TERMDECK';
-  const LOGO = {
-    T: ['#####', '..#..', '..#..', '..#..'],
-    E: ['#####', '####.', '#....', '#####'],
-    R: ['####.', '#...#', '###..', '#..#.'],
-    M: ['#...#', '##.##', '#.#.#', '#...#'],
-    D: ['###..', '#...#', '#...#', '###..'],
-    C: ['####.', '#....', '#....', '####.'],
-    K: ['#...#', '#..#.', '###..', '#..#.'],
-  };
-  const LOGO_HEIGHT = 4;
-  const LOGO_WIDTH = LOGO_TEXT.length * 5 + (LOGO_TEXT.length - 1);
-
-  const banner = blessed.box({
-    parent: screen,
-    top: 1,
-    left: 0,
-    width: '100%',
-    height: LOGO_HEIGHT,
-    tags: true,
-    style: { bg: THEME.bg, fg: THEME.logoFg },
-  });
-
-  /** Centre the block-letter wordmark on the current terminal width. */
-  function renderBanner() {
-    const pad = Math.max(0, Math.floor((screen.cols - LOGO_WIDTH) / 2));
-    const rows = LOGO_TEXT.split('').map((ch) => LOGO[ch]);
-    const lines = [];
-    for (let r = 0; r < LOGO_HEIGHT; r++) {
-      let row = '';
-      for (let i = 0; i < rows.length; i++) row += (i ? ' ' : '') + rows[i][r];
-      lines.push(' '.repeat(pad) + row);
-    }
-    banner.setContent(`{bold}{${THEME.logoFg}-fg}${lines.join('\n')}{/${THEME.logoFg}-fg}{/bold}`);
-  }
-
-  // Stats + search strip sits directly under the logo banner (no gap).
+  // Stats + search strip sits directly under the masthead (no gap).
   const statsBar = blessed.box({
     parent: screen,
-    top: 1 + LOGO_HEIGHT,
+    top: TITLE_HEIGHT,
     left: 0,
     width: '100%',
     height: 1,
@@ -257,7 +218,7 @@ function launchDashboard(config, options = {}) {
     style: { bg: THEME.bg, fg: THEME.text },
   });
 
-  const bodyTop = 1 + LOGO_HEIGHT + 1;   // status line + logo banner + stats
+  const bodyTop = TITLE_HEIGHT + 1;   // masthead + stats bar, no gaps
   const footerHeight = 1;
   const bodyHeight = Math.max(3, screen.rows - bodyTop - footerHeight);
 
@@ -487,8 +448,10 @@ function launchDashboard(config, options = {}) {
     const stats = filterChips();
     const search = `{${THEME.textDim}-fg}${escapeBraces(searchLabel())}{/${THEME.textDim}-fg}`;
     statsBar.setContent(` ${stats}   ${search} `);
-    header.setContent(`{${THEME.textDim}-fg}${formatTimestamp()}{/${THEME.textDim}-fg}`);
-    renderBanner();
+    // formatTimestamp() renders "Sep 21, 2026 3:30:59 PM"; fall back to the
+    // platform formatter only if the custom 12-hour/date renderer ever fails.
+    const clock = formatTimestamp(new Date()) || new Date().toLocaleTimeString();
+    titleBox.setContent(`{center}{bold}${TITLE_TEXT}{/bold}{/center}\n{center}${escapeBraces(clock)}{/center}`);
   }
 
   /** Projects after the chip (status) + search (regex on name) filters. */
@@ -1050,7 +1013,7 @@ function launchDashboard(config, options = {}) {
 
   return {
     screen,
-    widgets: { header, title: banner, statsBar, projectList, card, logBox, footer, buttons },
+    widgets: { header: titleBox, title: titleBox, statsBar, projectList, card, logBox, footer, buttons },
     servers,
     logView,
     runStates,
