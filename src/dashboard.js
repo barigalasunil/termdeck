@@ -3,20 +3,26 @@
 /**
  * The termdeck TUI.
  *
- * 12x12 blessed-contrib grid layout:
+ * Compact "email client" layout — hand-positioned widgets so every pane is
+ * exactly the rows it needs, with zero gaps between panes:
  *
  *   +-------------------------------------------------------------------+
- *   | header: termdeck · [ALL 14][LIVE 6]… /search · time · ● DAEMON OFF  |
+ *   |  May 18, 2025 4:42:09 PM                                          |
+ *   |  ##### ##### ####. #...# ###.. ##### ####. #...#                  |
+ *   |  ..#.. ####. #...# ##.## #...# ####. #.... #..#.                   |
+ *   |  ..#.. #.... ###.. #.#.# #...# #.... #.... ###..                   |
+ *   |  ..#.. ##### #..#. #...# ###.. ##### ####. #..#.                   |
+ *   | [ALL 14] [LIVE 6] [EXP 4] …   /search (regex)                     |
  *   +---------------------------------+---------------------------------+
- *   | PROJECTS (14 repos)             | DETAILS: hyperion-core       …  |
- *   |  ● hyperion-core     12m ago    |  path / status / branch / port  |
- *   |  ● atlas-engine       2h ago    +---------------------------------+
- *   |  …                               | ACTIONS (r/e/c/x/o/f/k/s)    |
+ *   | PROJECTS (14)                   | DETAILS: hyperion-core          |
+ *   |  ● hyperion-core      12m ago   |  status / path / branch / port  |
+ *   |  ● atlas-engine        2h ago   +---------------------------------+
+ *   |  …                              | ACTIONS [c] Claude Code …       |
  *   |                                 +---------------------------------+
- *   |                                 | OUTPUT (dev server / agents)   |
- *   |                                 |  21:04:12 ✓ vite ready 3000    |
+ *   |                                 | OUTPUT (dev server / agents)    |
+ *   |                                 |  21:04:12 ✓ vite ready 3000     |
  *   +---------------------------------+---------------------------------+
- *   | footer: [1/14] selected · keys · tab switch pane · q quit         |
+ *   | [1/14] SELECTED · keys · PANE: [PROJECTS]                         |
  *   +-------------------------------------------------------------------+
  *
  * The controller object returned by launchDashboard() keeps the same shape
@@ -26,23 +32,57 @@
  * inside the ACTIONS cell but stay real blessed buttons (mouse + tab focus).
  */
 
-const path = require('path');
-
-const blessed = require('blessed');
+const path = require('path');const blessed = require('blessed');
 const contrib = require('blessed-contrib');
 
 const { DevServerManager } = require('./devServer');
 const { openInNewTerminal } = require('./terminal');
 const { LogView } = require('./logView');
-const { STATUS_COLORS, MODERN_STATUSES, loadConfig, loadConfigFromPath, displayPath, saveConfig } = require('./config');
-const { escapeBraces, truncate, timestamp, timeAgo } = require('./util');
+const { MODERN_STATUSES, loadConfig, loadConfigFromPath, displayPath, saveConfig } = require('./config');
+const { escapeBraces, truncate, formatTimestamp, timestamp, timeAgo } = require('./util');
 const { getGitInfo } = require('./projectManager');
-const { AGENT_COMMANDS, launchAgent, tailAgentLog, stopAllAgents } = require('./agentManager');
+const { launchAgent, tailAgentLog, stopAllAgents } = require('./agentManager');
 const { startMonitoring, stopMonitoring, stopAllMonitoring } = require('./processMonitor');
 
-const LAYOUT = { rows: 12, cols: 12, headerHeight: 1, footerHeight: 1 };
+const LAYOUT = { rows: 12, cols: 12, headerHeight: 6, footerHeight: 1 };
 
-const PROJECT_COLORS = ['cyan', 'green', 'yellow', 'magenta', 'red', 'white'];
+/* ------------------------------------------------------------------ *
+ * Theme — dark, modern palette, pastel status tags, thin borders.
+ * ------------------------------------------------------------------ */
+
+const THEME = {
+  bg: '#1e1e2e',        // base background (main screen + boxes)
+  surface: '#181825',   // slightly darker panels (output, footer)
+  text: '#cdd6f4',      // general text (light gray-white)
+  textDim: '#9399b2',   // secondary text (timestamps, labels)
+  border: '#45475a',    // thin, unobtrusive box borders
+  logoFg: '#38bdf8',    // block-letter wordmark (bright cyan)
+  accentBg: '#3b82f6',  // selected-project highlight (bright blue)
+  accentFg: '#ffffff',
+};
+
+/** Pastel status colours per modern status; `unknown` is neutral gray. */
+const STATUS_FG = {
+  live: '#a6e3a1',    // soft green
+  exp: '#f9e2af',     // soft yellow/orange
+  pend: '#89b4fa',    // soft blue
+  scrap: '#6c7086',   // soft gray
+  unknown: '#6c7086', // neutral gray for missing statuses
+};
+
+/** Full uppercase words shown in the DETAILS pane. */
+const STATUS_FULL = { live: 'LIVE', exp: 'EXPERIMENTAL', pend: 'PENDING', scrap: 'SCRAP' };
+
+/** Agent buttons name the agent explicitly instead of a bare key hint. */
+const AGENT_LABELS = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  freebuff: 'Freebuff',
+  kilocode: 'Kilocode',
+};
+
+const PROJECT_COLORS = ['#89b4fa', '#a6e3a1', '#f9e2af', '#f5c2e7', '#f38ba8', '#94e2d5'];
 
 /** Legacy status -> short modern label, used for dots, chips and cycling. */
 const MODERN_OF = {
@@ -56,16 +96,11 @@ const MODERN_OF = {
   scrap: 'scrap',
 };
 
-/** Dot / chip colour per modern status (design spec). */
-const DOT_COLORS = { live: 'green', exp: 'yellow', pend: 'blue', scrap: 'gray' };
-
 const DEMO_PID = 49201;
 const SAMPLE_CONFIG_PATH = path.join(__dirname, '..', 'sample-config.json');
 
-const DEFAULT_AGENT_COMMANDS = { claude: 'claude', codex: 'codex', opencode: 'opencode', freebuff: 'freebuff', kilocode: 'kilocode' };
-
 const FOOTER_KEYS =
-  '{bold}↑↓{/bold} navigate  {bold}tab{/bold} switch pane  {bold}s{/bold} status  {bold}/{/bold} search  {bold}shift+x{/bold} stop dev  {bold}r{/bold} run dev  {bold}q{/bold} quit';
+  '{bold}↑↓{/bold} navigate  {bold}tab{/bold} pane  {bold}s{/bold} status  {bold}/{/bold} search  {bold}r{/bold} dev  {bold}shift+x{/bold} stop  {bold}q{/bold} quit';
 const HINTS = ` ${FOOTER_KEYS} `;
 
 /** Colour-coded demo log lines so the OUTPUT pane styling can be checked. */
@@ -80,6 +115,22 @@ const SAMPLE_LOG_LINES = [
   { stream: 'system', line: '{cyan-fg}[claude]{/cyan-fg} analysing query-plan regression' },
   { stream: 'system', line: '{green-fg}✓{/green-fg} cache flush recovered after retry' },
 ];
+
+/**
+ * Modern short status for a project, or `null` when the status is missing or
+ * unrecognised (rendered as "[?] Unknown" instead of guessing).
+ */
+function modernStatusOf(project) {
+  if (!project) return null;
+  const raw = project.status;
+  if (raw === null || raw === undefined || raw === '') return null;
+  if (String(raw).toLowerCase() === 'unknown') return null;
+  return MODERN_OF[raw] || null;
+}
+
+function statusFg(modern) {
+  return STATUS_FG[modern] || STATUS_FG.unknown;
+}
 
 /**
  * @param {object} config   parsed config (real or the shipped demo dataset)
@@ -110,7 +161,7 @@ function launchDashboard(config, options = {}) {
   let searchActive = false;
   let searchBuffer = '';
 
-  const colorFor = (project) => palette.get(project.path) || 'white';
+  const colorFor = (project) => palette.get(project.path) || THEME.text;
 
   function rebuildPalette() {
     palette.clear();
@@ -118,28 +169,104 @@ function launchDashboard(config, options = {}) {
   }
   rebuildPalette();
 
-  const dotColor = (project) => DOT_COLORS[MODERN_OF[project.status] || 'pend'] || 'gray';
-  const badgeColor = (project) => STATUS_COLORS[project.status] || dotColor(project);
-
   const configLoader = config.demoMode ? () => loadConfigFromPath(SAMPLE_CONFIG_PATH, {}) : () => loadConfig({});
 
   /* ---------------------------------------------------------------- *
-   * Widgets (blessed-contrib 12x12 grid)
+   * Widgets (hand-positioned: exact rows, zero gaps between panes)
    * ---------------------------------------------------------------- */
 
-  const grid = new contrib.grid({ rows: LAYOUT.rows, cols: LAYOUT.cols, screen, color: '#444444' });
-
-  function styleCell(el, label) {
-    el.setLabel(label);
-    el.style.border = { fg: '#444444' };
-    el.style.label = { fg: '#aaaaaa' };
-    el.style.fg = 'white';
+  /**
+   * Shared look for a bordered panel: dark bg, thin dark-gray border,
+   * subtle label. Style is assigned before setLabel on purpose — blessed
+   * bakes style.label into the label widget when it is created.
+   */
+  function panel(el, label) {
+    el.style.border = { type: 'line', fg: THEME.border };
+    el.style.label = { fg: THEME.textDim };
+    el.style.fg = THEME.text;
+    el.style.bg = THEME.bg;
+    if (label) el.setLabel(label);
+    return el;
   }
 
-  const header = grid.set(0, 0, 1, 12, blessed.box, { tags: true });
-  styleCell(header, ' termdeck ');
+  // Top status line: a flat 1-row strip holding the clock/date. The big
+  // block-letter "TERMDECK" wordmark (banner below) sits under it, then the
+  // stats bar — all back-to-back with zero gaps.
+  const header = blessed.box({
+    parent: screen,
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: 1,
+    tags: true,
+    style: { bg: THEME.bg },
+  });
 
-  const projectList = grid.set(1, 0, 10, 5, blessed.list, {
+  /**
+   * Logo wordmark: hardcoded 4-row block letters so "TERMDECK" reads as a
+   * real logo without needing a font (no figlet dependency). Letters are 5
+   * chars wide plus a 1-char gap; renderBanner() centres the whole 47-char
+   * wordmark and is re-run on every header refresh so a resize keeps it in
+   * the middle. (Recreating a blessed element per updateHeader() leaked/looped
+   * the renderer, so the box is created once and only its content is mutated.)
+   */
+  const LOGO_TEXT = 'TERMDECK';
+  const LOGO = {
+    T: ['#####', '..#..', '..#..', '..#..'],
+    E: ['#####', '####.', '#....', '#####'],
+    R: ['####.', '#...#', '###..', '#..#.'],
+    M: ['#...#', '##.##', '#.#.#', '#...#'],
+    D: ['###..', '#...#', '#...#', '###..'],
+    C: ['####.', '#....', '#....', '####.'],
+    K: ['#...#', '#..#.', '###..', '#..#.'],
+  };
+  const LOGO_HEIGHT = 4;
+  const LOGO_WIDTH = LOGO_TEXT.length * 5 + (LOGO_TEXT.length - 1);
+
+  const banner = blessed.box({
+    parent: screen,
+    top: 1,
+    left: 0,
+    width: '100%',
+    height: LOGO_HEIGHT,
+    tags: true,
+    style: { bg: THEME.bg, fg: THEME.logoFg },
+  });
+
+  /** Centre the block-letter wordmark on the current terminal width. */
+  function renderBanner() {
+    const pad = Math.max(0, Math.floor((screen.cols - LOGO_WIDTH) / 2));
+    const rows = LOGO_TEXT.split('').map((ch) => LOGO[ch]);
+    const lines = [];
+    for (let r = 0; r < LOGO_HEIGHT; r++) {
+      let row = '';
+      for (let i = 0; i < rows.length; i++) row += (i ? ' ' : '') + rows[i][r];
+      lines.push(' '.repeat(pad) + row);
+    }
+    banner.setContent(`{bold}{${THEME.logoFg}-fg}${lines.join('\n')}{/${THEME.logoFg}-fg}{/bold}`);
+  }
+
+  // Stats + search strip sits directly under the logo banner (no gap).
+  const statsBar = blessed.box({
+    parent: screen,
+    top: 1 + LOGO_HEIGHT,
+    left: 0,
+    width: '100%',
+    height: 1,
+    tags: true,
+    style: { bg: THEME.bg, fg: THEME.text },
+  });
+
+  const bodyTop = 1 + LOGO_HEIGHT + 1;   // status line + logo banner + stats
+  const footerHeight = 1;
+  const bodyHeight = Math.max(3, screen.rows - bodyTop - footerHeight);
+
+  const projectList = blessed.list({
+    parent: screen,
+    top: bodyTop,
+    left: 0,
+    width: '40%',
+    height: bodyHeight,
     tags: true,
     keys: true,
     mouse: true,
@@ -147,26 +274,69 @@ function launchDashboard(config, options = {}) {
     scrollable: true,
     alwaysScroll: true,
     items: [],
-    style: { selected: { bg: 'blue', fg: 'white', bold: true }, item: { fg: 'white', hover: { bg: '#333333' } } },
+    border: { type: 'line', fg: THEME.border },
+    style: {
+      bg: THEME.bg,
+      item: { fg: THEME.text, hover: { bg: '#313244' } },
+      selected: { bg: THEME.accentBg, fg: THEME.accentFg, bold: true },
+    },
   });
-  styleCell(projectList, ' PROJECTS (14 repos) ');
+  panel(projectList, ' PROJECTS ');
 
-  const card = grid.set(1, 5, 3, 7, blessed.box, { tags: true, scrollable: true, mouse: true });
-  styleCell(card, ' DETAILS ');
+  const rightLeft = '40%';
+  const rightWidth = '60%';
+  const cardHeight = Math.max(3, Math.round(bodyHeight * 0.42));
+  // The ACTIONS pane must fit 4 button rows plus borders; OUTPUT gets the rest.
+  const actionsHeight = Math.max(6, Math.round(bodyHeight * 0.34));
+  const logHeight = Math.max(3, bodyHeight - cardHeight - actionsHeight);
 
-  const actionsShell = grid.set(4, 5, 3, 7, blessed.box, { tags: true });
-  styleCell(actionsShell, ' ACTIONS — r/e/c/x/o/f/k/s or [Enter] ');
+  const card = blessed.box({
+    parent: screen,
+    top: bodyTop,
+    left: rightLeft,
+    width: rightWidth,
+    height: cardHeight,
+    tags: true,
+    scrollable: true,
+    mouse: true,
+    border: { type: 'line', fg: THEME.border },
+  });
+  panel(card, ' DETAILS ');
 
-  const footer = grid.set(11, 0, 1, 12, blessed.box, { tags: true, style: { fg: 'white', bg: 'blue' } });
+  const actionsShell = blessed.box({
+    parent: screen,
+    top: bodyTop + cardHeight,
+    left: rightLeft,
+    width: rightWidth,
+    height: actionsHeight,
+    tags: true,
+    border: { type: 'line', fg: THEME.border },
+  });
+  panel(actionsShell, ' ACTIONS — r/e/c/x/o/f/k/s or [Enter] ');
 
-  /** One-line action button, nested inside the ACTIONS cell. */
-  function makeButton({ content, color, onPress }) {
+  const footer = blessed.box({
+    parent: screen,
+    top: bodyTop + bodyHeight,
+    left: 0,
+    width: '100%',
+    height: footerHeight,
+    tags: true,
+    style: { fg: THEME.text, bg: THEME.surface },
+  });
+
+  /**
+   * One-line action button, nested inside the ACTIONS cell. `focusBg/focusFg`
+   * drive the focused/hover look; the status button is re-styled at render
+   * time to nudge the user while a project has no status.
+   */
+  function makeButton({ content, fg, focusBg, focusFg, onPress }) {
     const button = blessed.button({
       parent: actionsShell,
       top: '0%',
       left: '0%',
       width: '47%',
-      height: '24%',
+      height: '23%',
+      shrink: true,
       content,
       align: 'center',
       valign: 'middle',
@@ -174,7 +344,12 @@ function launchDashboard(config, options = {}) {
       mouse: true,
       clickable: true,
       autoFocus: false,
-      style: { fg: color, focus: { bg: 'lightwhite', fg: 'black', bold: true }, hover: { bg: 'lightwhite', fg: 'black', bold: true } },
+      style: {
+        fg: fg || THEME.text,
+        bg: THEME.bg,
+        focus: { bg: focusBg || THEME.accentBg, fg: focusFg || THEME.accentFg, bold: true },
+        hover: { bg: focusBg || THEME.accentBg, fg: focusFg || THEME.accentFg, bold: true },
+      },
     });
 
     button.on('press', () => {
@@ -191,34 +366,51 @@ function launchDashboard(config, options = {}) {
   }
 
   const buttons = {};
-  function addButton(name, slot, label, color, onPress) {
-    const button = makeButton({ content: `{bold}[${label}]{/bold} ${label === 'r' ? 'Run dev server' : label === 'e' ? 'Open in editor' : label === 's' ? 'Change status' : `${label.toUpperCase()} agent`}`, color, onPress });
+  const BUTTON_SLOTS = new Map();
+
+  /**
+   * 2-col x 4-row button grid nested inside the ACTIONS pane. Geometry is
+   * computed from the pane's exact row count so buttons never clip borders,
+   * even on an 80x24 terminal.
+   */
+  function addButton(name, slot, content, opts) {
+    const button = makeButton({ content, ...opts });
     BUTTON_SLOTS.set(button, slot);
-    button.top = `${slot.row * 25}%`;
-    button.left = slot.col === 0 ? '1%' : '51%';
+    const inner = Math.max(1, actionsHeight - 2);
+    const rowH = Math.max(1, Math.floor(inner / 4));
+    const pad = Math.max(0, Math.floor((inner - 4 * rowH) / 2));
+    button.top = 1 + pad + slot.row * rowH;
+    button.height = rowH;
+    button.left = slot.col === 0 ? '2%' : '52%';
+    button.width = '46%';
     buttons[name] = button;
     return button;
   }
-  const BUTTON_SLOTS = new Map();
 
-  addButton('dev', { row: 0, col: 0 }, 'r', 'green', () => startDevServer());
-  addButton('editor', { row: 0, col: 1 }, 'e', 'blue', () => openTool('editor'));
-  addButton('claude', { row: 1, col: 0 }, 'c', 'cyan', () => openTool('claude'));
-  addButton('codex', { row: 1, col: 1 }, 'x', 'cyan', () => openTool('codex'));
-  addButton('opencode', { row: 2, col: 0 }, 'o', 'cyan', () => openTool('opencode'));
-  addButton('freebuff', { row: 2, col: 1 }, 'f', 'cyan', () => openTool('freebuff'));
-  addButton('kilocode', { row: 3, col: 0 }, 'k', 'cyan', () => openTool('kilocode'));
-  addButton('status', { row: 3, col: 1 }, 's', 'yellow', () => cycleStatus());
+  addButton('dev', { row: 0, col: 0 }, '{bold}[r]{/bold} Run dev server', { fg: STATUS_FG.live, onPress: () => startDevServer() });
+  addButton('editor', { row: 0, col: 1 }, '{bold}[e]{/bold} Open in editor', { fg: THEME.text, onPress: () => openTool('editor') });
+  addButton('claude', { row: 1, col: 0 }, `{bold}[c]{/bold} ${AGENT_LABELS.claude}`, { fg: '#f5c2e7', onPress: () => openTool('claude') });
+  addButton('codex', { row: 1, col: 1 }, `{bold}[x]{/bold} ${AGENT_LABELS.codex}`, { fg: '#94e2d5', onPress: () => openTool('codex') });
+  addButton('opencode', { row: 2, col: 0 }, `{bold}[o]{/bold} ${AGENT_LABELS.opencode}`, { fg: STATUS_FG.pend, onPress: () => openTool('opencode') });
+  addButton('freebuff', { row: 2, col: 1 }, `{bold}[f]{/bold} ${AGENT_LABELS.freebuff}`, { fg: STATUS_FG.exp, onPress: () => openTool('freebuff') });
+  addButton('kilocode', { row: 3, col: 0 }, `{bold}[k]{/bold} ${AGENT_LABELS.kilocode}`, { fg: '#cba6f7', onPress: () => openTool('kilocode') });
+  addButton('status', { row: 3, col: 1 }, '{bold}[s]{/bold} Change status', { fg: STATUS_FG.pend, onPress: () => cycleStatus() });
 
   // Created after the buttons so tab-focus order is list -> actions -> output.
-  const logBox = grid.set(7, 5, 4, 7, contrib.log, {
+  const logBox = contrib.log({
+    parent: screen,
+    top: bodyTop + cardHeight + actionsHeight,
+    left: rightLeft,
+    width: rightWidth,
+    height: logHeight,
     tags: true,
     keys: true,
     mouse: true,
     bufferLength: 600,
-    style: { item: { fg: 'white' }, selected: { fg: 'white', bg: 'black' } },
+    border: { type: 'line', fg: THEME.border },
+    style: { bg: THEME.surface, item: { fg: THEME.text }, selected: { fg: THEME.text, bg: '#313244' } },
   });
-  styleCell(logBox, ' OUTPUT (dev server / agents) ');
+  panel(logBox, ' OUTPUT (dev server / agents) ');
 
   const logView = new LogView(logBox, {
     maxLines: 800,
@@ -245,10 +437,10 @@ function launchDashboard(config, options = {}) {
     },
     onExit: (project, info) => {
       if (info.restart) {
-        appendLog(project, `{yellow-fg}dev server crashed — auto-restarting ({bold}${info.attempt}/${info.max}{/bold})\u2026{/yellow-fg}`, 'system');
+        appendLog(project, `{${STATUS_FG.exp}-fg}dev server crashed — auto-restarting ({bold}${info.attempt}/${info.max}{/bold})\u2026{/${STATUS_FG.exp}-fg}`, 'system');
       } else {
         const detail = info.code === null || info.code === undefined ? `signal ${info.signal}` : `exit code ${info.code}`;
-        appendLog(project, `{gray-fg}dev server stopped (${detail}){/gray-fg}`, 'system');
+        appendLog(project, `{${THEME.textDim}-fg}dev server stopped (${detail}){/${THEME.textDim}-fg}`, 'system');
       }
       refreshList();
       updateCard();
@@ -260,9 +452,9 @@ function launchDashboard(config, options = {}) {
    * ---------------------------------------------------------------- */
 
   function modernCounts() {
-    const counts = { live: 0, exp: 0, pend: 0, scrap: 0 };
+    const counts = { live: 0, exp: 0, pend: 0, scrap: 0, unknown: 0 };
     for (const project of projects) {
-      const modern = MODERN_OF[project.status] || 'pend';
+      const modern = modernStatusOf(project) || 'unknown';
       counts[modern] = (counts[modern] || 0) + 1;
     }
     return counts;
@@ -270,19 +462,19 @@ function launchDashboard(config, options = {}) {
 
   function filterChips() {
     const counts = modernCounts();
-    const chip = (label, count, color) => {
-      const modern = label.toLowerCase();
-      const active = status.chip === modern;
-      const text = `[${label} ${count}]`;
-      return count > 0 ? `{${color}-fg}${active ? '{bold}' : ''}${text}${active ? '{/bold}' : ''}{/${color}-fg}` : '';
+    const chip = (label, count, color, key) => {
+      if (count <= 0) return '';
+      const active = status.chip === key;
+      return `{${color}-fg}${active ? '{bold}' : ''}[${label} ${count}]${active ? '{/bold}' : ''}{/${color}-fg}`;
     };
     const allActive = status.chip === null;
     return [
-      `{white-fg}${allActive ? '{bold}' : ''}[ALL ${projects.length}]${allActive ? '{/bold}' : ''}{/white-fg}`,
-      chip('LIVE', counts.live, 'green'),
-      chip('EXP', counts.exp, 'yellow'),
-      chip('PEND', counts.pend, 'blue'),
-      chip('SCRAP', counts.scrap, 'gray'),
+      `{${THEME.text}-fg}${allActive ? '{bold}' : ''}[ALL ${projects.length}]${allActive ? '{/bold}' : ''}{/${THEME.text}-fg}`,
+      chip('LIVE', counts.live, STATUS_FG.live, 'live'),
+      chip('EXP', counts.exp, STATUS_FG.exp, 'exp'),
+      chip('PEND', counts.pend, STATUS_FG.pend, 'pend'),
+      chip('UNKNOWN', counts.unknown, STATUS_FG.unknown, 'unknown'),
+      chip('SCRAP', counts.scrap, STATUS_FG.scrap, 'scrap'),
     ].filter(Boolean).join(' ');
   }
 
@@ -292,16 +484,20 @@ function launchDashboard(config, options = {}) {
   }
 
   function updateHeader() {
-    const left = ` {bold}termdeck{/bold}  ${filterChips()}   {white-fg}${escapeBraces(searchLabel())}{/white-fg}`;
-    const right = ` {gray-fg}${timestamp()}{/gray-fg}  {green-fg}● DAEMON OFF{/green-fg} `;
-    header.setContent(`${left}${right}`);
+    const stats = filterChips();
+    const search = `{${THEME.textDim}-fg}${escapeBraces(searchLabel())}{/${THEME.textDim}-fg}`;
+    statsBar.setContent(` ${stats}   ${search} `);
+    header.setContent(`{${THEME.textDim}-fg}${formatTimestamp()}{/${THEME.textDim}-fg}`);
+    renderBanner();
   }
 
   /** Projects after the chip (status) + search (regex on name) filters. */
   function filteredProjects() {
     let list = projects;
-    if (status.chip) {
-      list = list.filter((project) => (MODERN_OF[project.status] || 'pend') === status.chip);
+    if (status.chip === 'unknown') {
+      list = list.filter((project) => modernStatusOf(project) === null);
+    } else if (status.chip) {
+      list = list.filter((project) => modernStatusOf(project) === status.chip);
     }
     if (status.search) {
       let re = null;
@@ -316,68 +512,66 @@ function launchDashboard(config, options = {}) {
   }
 
   function listItems() {
-    const inner = Math.max(12, Math.floor((screen.cols * 5) / 12) - 4);
+    const inner = Math.max(12, Math.floor(screen.cols * 0.4) - 4);
     const nameWidth = Math.max(6, inner - 12);
     return filteredProjects().map((project) => {
       const state = runStates.get(project.path);
       const running = state && (state.status === 'running' || state.status === 'starting');
-      const dot = running
-        ? state.status === 'running'
-          ? '{green-fg}●{/green-fg}'
-          : '{yellow-fg}●{/yellow-fg}'
-        : `{${dotColor(project)}-fg}●{/${dotColor(project)}-fg}`;
+      const modern = modernStatusOf(project);
+      const dotFg = running ? (state.status === 'running' ? STATUS_FG.live : STATUS_FG.exp) : statusFg(modern);
       const name = escapeBraces(truncate(project.name, nameWidth));
       const info = gitInfo.get(project.path);
       const activity = escapeBraces(truncate(project.lastActivity || timeAgo(info && info.lastCommitAt) || '\u2014', 10));
-      return `${dot} ${name} {gray-fg}${activity}{/gray-fg}`;
+      return `{${dotFg}-fg}●{/${dotFg}-fg} ${name} {${THEME.textDim}-fg}${activity}{/${THEME.textDim}-fg}`;
     });
   }
 
   function devStateLine(project, state) {
     if (state && (state.status === 'running' || state.status === 'starting')) {
       const where = state.url ? ` \u2192 ${escapeBraces(state.url)}` : ' \u2014 waiting for a localhost URL\u2026';
-      return ` {green-fg}● dev server ${state.status} (pid ${state.pid}){/green-fg}${where}`;
+      return ` {${STATUS_FG.live}-fg}● dev server ${state.status} (pid ${state.pid}){/${STATUS_FG.live}-fg}${where}`;
     }
     if (state && state.status === 'error') {
-      return ` {red-fg}● ${escapeBraces(truncate(state.error || 'failed to start', 50))}{/red-fg}`;
+      return ` {#f38ba8-fg}● ${escapeBraces(truncate(state.error || 'failed to start', 50))}{/#f38ba8-fg}`;
     }
     const last = servers.lastExit.get(project.path);
     if (last) {
       const detail = last.code === null || last.code === undefined ? `signal ${last.signal}` : `exit code ${last.code}`;
-      return ` {gray-fg}○ dev server stopped (${detail}){/gray-fg}`;
+      return ` {${THEME.textDim}-fg}○ dev server stopped (${detail}){/${THEME.textDim}-fg}`;
     }
-    return ' {gray-fg}○ dev server not running{/gray-fg}';
+    return ` {${THEME.textDim}-fg}○ dev server not running{/${THEME.textDim}-fg}`;
   }
 
   function updateCard() {
     const project = selectedProject();
     if (!project) {
-      card.setContent(' {gray-fg}No projects configured. Run `termdeck --setup`.{/gray-fg}');
+      card.setContent(` {${THEME.textDim}-fg}No projects configured. Run \`termdeck --setup\`.{/${THEME.textDim}-fg}`);
       screen.render();
       return;
     }
 
     const state = runStates.get(project.path) || { status: 'idle' };
-    const color = badgeColor(project);
-    const inner = Math.max(24, Math.floor((screen.cols * 7) / 12) - 4);
+    const modern = modernStatusOf(project);
+    const sFg = statusFg(modern);
+    const inner = Math.max(24, Math.floor(screen.cols * 0.6) - 4);
     const runPid = state && state.pid ? state.pid : null;
     const info = gitInfo.get(project.path);
     const stats = processStats.get(project.path);
     const pidLabel = runPid
-      ? runPid
+      ? String(runPid)
       : stats && stats.pid
-        ? stats.pid
+        ? String(stats.pid)
         : config.demoMode && project.port
-          ? `${DEMO_PID} {gray-fg}(demo){/gray-fg}`
+          ? `${DEMO_PID} {${THEME.textDim}-fg}(demo){/${THEME.textDim}-fg}`
           : '\u2014';
     const memCpu = stats && stats.memory
       ? `${escapeBraces(stats.memory)} \u00b7 ${escapeBraces(stats.cpu || '\u2014')}`
       : config.demoMode
-        ? '213.4 MB \u00b7 0.8% {gray-fg}(demo){/gray-fg}'
+        ? `213.4 MB \u00b7 0.8% {${THEME.textDim}-fg}(demo){/${THEME.textDim}-fg}`
         : '\u2014';
     const dirty = info && info.dirty ? info.dirty : { added: 0, removed: 0 };
     const dirtyLabel = dirty.added || dirty.removed
-      ? ` {red-fg}+${dirty.added}/{blue-fg}-${dirty.removed}{/blue-fg}{/red-fg}`
+      ? ` {#f38ba8-fg}+${dirty.added}{/#f38ba8-fg}{#89b4fa-fg} -${dirty.removed}{/#89b4fa-fg}`
       : '';
     const branch = (info && info.branch) || project.branch || '\u2014';
     const hash = (info && info.commitHash) || (project.lastCommit && project.lastCommit.hash) || '';
@@ -385,32 +579,52 @@ function launchDashboard(config, options = {}) {
     const lastAt = (info && timeAgo(info.lastCommitAt)) || project.lastActivity || null;
     const commit = `${hash} ${msg} ${lastAt ? `(${lastAt})` : ''}`.trim() || branch;
 
+    // Unknown / missing status renders as "[?] Unknown" in neutral gray; the
+    // status button is recoloured below to prompt the user to set it.
+    const unknown = !modern;
+    const fullLabel = modern ? (STATUS_FULL[modern] || modern.toUpperCase()) : 'UNKNOWN';
+    const statusChip = unknown
+      ? `{${STATUS_FG.unknown}-fg}{bold}[?] Unknown{/bold}{/${STATUS_FG.unknown}-fg}`
+      : `{${sFg}-fg}{bold}[${modern.toUpperCase()}]{/bold} ${fullLabel}{/${sFg}-fg}`;
+
     const lines = [
-      ` {${color}-fg}●{/${color}-fg} {bold}${escapeBraces(truncate(project.name, 40))}{/bold}`,
-      ` {gray-fg}${escapeBraces(truncate(project.info || '(no description)', inner - 2))}{/gray-fg}`,
-      ` {gray-fg}Path:{/gray-fg} ${escapeBraces(truncate(displayPath(project.path, config.root), inner - 8))}`,
-      ` {gray-fg}Status:{/gray-fg} {${color}-fg}{bold}${project.status.toUpperCase()}{/bold}{/${color}-fg}   {gray-fg}Branch:{/gray-fg} {green-fg}${escapeBraces(truncate(branch, 30))}{/green-fg}${dirtyLabel}`,
-      ` {gray-fg}Dev port:{/gray-fg} ${project.port || '\u2014'}   {gray-fg}PID:{/gray-fg} ${escapeBraces(pidLabel)}`,
-      ` {gray-fg}Package mgr:{/gray-fg} ${escapeBraces(project.packageManager || '\u2014')}`,
-      ` {gray-fg}Stack:{/gray-fg} ${escapeBraces(truncate(project.stack || '\u2014', inner - 12))}`,
-      ` {gray-fg}Mem/CPU:{/gray-fg} ${escapeBraces(memCpu)}`,
-      ` {gray-fg}Last commit:{/gray-fg} ${escapeBraces(truncate(commit, inner - 16))}`,
+      ` {${sFg}-fg}●{/${sFg}-fg} {bold}${escapeBraces(truncate(project.name, 40))}{/bold}`,
+      ` {${THEME.textDim}-fg}${escapeBraces(truncate(project.info || '(no description)', inner - 2))}{/${THEME.textDim}-fg}`,
+      ` {${THEME.textDim}-fg}Path:{/${THEME.textDim}-fg} ${escapeBraces(truncate(displayPath(project.path, config.root), inner - 8))}`,
+      ` {${THEME.textDim}-fg}Status:{/${THEME.textDim}-fg} ${statusChip}  {${THEME.textDim}-fg}Branch:{/${THEME.textDim}-fg} {${STATUS_FG.live}-fg}${escapeBraces(truncate(branch, 30))}{/${STATUS_FG.live}-fg}${dirtyLabel}`,
+      ` {${THEME.textDim}-fg}Dev port:{/${THEME.textDim}-fg} ${project.port || '\u2014'}   {${THEME.textDim}-fg}PID:{/${THEME.textDim}-fg} ${pidLabel}`,
+      ` {${THEME.textDim}-fg}Package mgr:{/${THEME.textDim}-fg} ${escapeBraces(String(project.packageManager || '\u2014'))}`,
+      ` {${THEME.textDim}-fg}Stack:{/${THEME.textDim}-fg} ${escapeBraces(truncate(project.stack || '\u2014', inner - 12))}`,
+      ` {${THEME.textDim}-fg}Mem/CPU:{/${THEME.textDim}-fg} ${memCpu}`,
+      ` {${THEME.textDim}-fg}Last commit:{/${THEME.textDim}-fg} ${escapeBraces(truncate(commit, inner - 16))}`,
       devStateLine(project, state),
     ];
 
     card.setContent(lines.join('\n'));
     card.setLabel(` DETAILS: ${project.name} `);
+
+    // Visual cue while the status is unknown: red button asking to be set.
+    if (unknown) {
+      buttons.status.setContent('{bold}[s]{/bold} Change status!');
+      buttons.status.style.fg = '#f38ba8';
+      buttons.status.style.bold = true;
+    } else {
+      buttons.status.setContent(`{bold}[s]{/bold} Change status \u2192 ${fullLabel}`);
+      buttons.status.style.fg = sFg;
+      buttons.status.style.bold = false;
+    }
+
     screen.render();
   }
 
   function buildFooter() {
     const sel = selectedProject();
     const index = sel ? filteredProjects().indexOf(sel) + 1 : 0;
-    const pane = currentPane();
+    const paneLabel = currentPane();
     const size = `${screen.cols}x${screen.rows}`;
     const chipLabel = status.chip ? status.chip.toUpperCase() : 'ALL';
-    const searchLabel = status.search ? ` /${status.search}` : '';
-    return ` {white-fg}[${index}/${filteredProjects().length}] SELECTED  FILTER: ${chipLabel}${searchLabel}{/white-fg}   ${FOOTER_KEYS}   {cyan-fg}PANE: [${pane}]{/cyan-fg} \u2502 utf-8 \u2502 ${size} `;
+    const search = status.search ? ` /${status.search}` : '';
+    return ` {${THEME.text}-fg}[${index}/${filteredProjects().length}] SELECTED  FILTER: ${chipLabel}${search}{/${THEME.text}-fg}   ${FOOTER_KEYS}   {${THEME.textDim}-fg}PANE: [${paneLabel}] \u2502 ${size}{/${THEME.textDim}-fg} `;
   }
 
   function updateFooter() {
@@ -428,7 +642,7 @@ function launchDashboard(config, options = {}) {
   function refreshList() {
     const selected = projectList.selected;
     projectList.setItems(listItems());
-    projectList.setLabel(` PROJECTS (${projects.length} repos) `);
+    projectList.setLabel(` PROJECTS (${projects.length}) `);
     if (typeof selected === 'number' && selected < projects.length) projectList.select(selected);
     updateHeader();
     updateFooter();
@@ -458,12 +672,13 @@ function launchDashboard(config, options = {}) {
 
   /** Log lines from child processes are raw text -> escape blessed markup. */
   function appendLog(project, line, stream = 'stdout') {
-    const prefix = `{gray-fg}${timestamp()}{/gray-fg} {${colorFor(project)}-fg}${escapeBraces(truncate(project.name, 10))}{/${colorFor(project)}-fg}`;
+    const fg = colorFor(project);
+    const prefix = `{${THEME.textDim}-fg}${timestamp()}{/${THEME.textDim}-fg} {${fg}-fg}${escapeBraces(truncate(project.name, 10))}{/${fg}-fg}`;
     if (stream === 'system') {
-      logView.push(`${prefix} {cyan-fg}[termdeck]{/cyan-fg} ${line}`);
+      logView.push(`${prefix} {#89b4fa-fg}[termdeck]{/#89b4fa-fg} ${line}`);
       return;
     }
-    const marker = stream === 'stderr' ? '{red-fg}✗{/red-fg} ' : '';
+    const marker = stream === 'stderr' ? '{#f38ba8-fg}✗{/#f38ba8-fg} ' : '';
     logView.push(`${prefix} ${marker}${escapeBraces(line)}`);
   }
 
@@ -488,7 +703,7 @@ function launchDashboard(config, options = {}) {
     const result = servers.start(project);
 
     if (!result.ok) {
-      appendLog(project, `{red-fg}could not start: ${escapeBraces(result.error)}{/red-fg}`, 'system');
+      appendLog(project, `{#f38ba8-fg}could not start: ${escapeBraces(result.error)}{/#f38ba8-fg}`, 'system');
       setStatus(`Could not start ${project.name}: ${result.error}`);
     } else {
       appendLog(project, `logs streaming into the OUTPUT pane — press shift+x to stop`, 'system');
@@ -522,28 +737,29 @@ function launchDashboard(config, options = {}) {
       appendLog(project, `opening editor in a new terminal: ${escapeBraces(command)}`, 'system');
       const result = await openInNewTerminal({ cwd: project.path, command });
       if (result.ok) {
-        appendLog(project, `{green-fg}new ${escapeBraces(result.terminal)} window \u2192 ${escapeBraces(displayPath(project.path, config.root))}{/green-fg}`, 'system');
+        appendLog(project, `{${STATUS_FG.live}-fg}new ${escapeBraces(result.terminal)} window \u2192 ${escapeBraces(displayPath(project.path, config.root))}{/${STATUS_FG.live}-fg}`, 'system');
         setStatus(`Opened editor in a new terminal window.`);
       } else {
-        appendLog(project, `{red-fg}could not open a terminal: ${escapeBraces(result.error)}{/red-fg}`, 'system');
+        appendLog(project, `{#f38ba8-fg}could not open a terminal: ${escapeBraces(result.error)}{/#f38ba8-fg}`, 'system');
         setStatus(`Could not open a terminal for ${project.name}.`);
       }
       return result;
     }
 
     // Agent: launch in a new terminal with log capture via tee where possible.
-    appendLog(project, `{cyan-fg}[${escapeBraces(kind)}]{/cyan-fg} launching ${escapeBraces(kind)} in a new terminal`, 'system');
-    setStatus(`Launching ${kind} for ${project.name}\u2026`);
+    const agentName = AGENT_LABELS[kind] || kind;
+    appendLog(project, `{#89b4fa-fg}[${escapeBraces(kind)}]{/#89b4fa-fg} launching ${escapeBraces(agentName)} in a new terminal`, 'system');
+    setStatus(`Launching ${agentName} for ${project.name}\u2026`);
     const result = await launchAgent(project, kind);
     if (result.ok) {
-      appendLog(project, `{green-fg}${escapeBraces(kind)} launched in new ${escapeBraces(result.terminal || 'terminal')} window \u2192 logs \u2192 ${escapeBraces(result.logFile || 'terminal only')}{/green-fg}`, 'system');
-      setStatus(`Launched ${kind} for ${project.name}.`);
+      appendLog(project, `{${STATUS_FG.live}-fg}${escapeBraces(agentName)} launched in new ${escapeBraces(result.terminal || 'terminal')} window \u2192 logs \u2192 ${escapeBraces(result.logFile || 'terminal only')}{/${STATUS_FG.live}-fg}`, 'system');
+      setStatus(`Launched ${agentName} for ${project.name}.`);
       if (result.logFile) {
         tailAgentLog(project, kind, (line) => appendLog(project, line, 'stdout'));
       }
     } else {
-      appendLog(project, `{red-fg}could not launch ${escapeBraces(kind)}: ${escapeBraces(result.error)}{/red-fg}`, 'system');
-      setStatus(`Could not launch ${kind} for ${project.name}.`);
+      appendLog(project, `{#f38ba8-fg}could not launch ${escapeBraces(agentName)}: ${escapeBraces(result.error)}{/#f38ba8-fg}`, 'system');
+      setStatus(`Could not launch ${agentName} for ${project.name}.`);
     }
     return result;
   }
@@ -551,11 +767,13 @@ function launchDashboard(config, options = {}) {
   function cycleStatus() {
     const project = selectedProject();
     if (!project) return;
-    const current = MODERN_OF[project.status] || 'pend';
+    // Unknown / missing statuses enter the cycle at `exp` so a single press
+    // gives the project a real status.
+    const current = modernStatusOf(project) || 'exp';
     const index = MODERN_STATUSES.indexOf(current);
     const next = MODERN_STATUSES[(index + 1) % MODERN_STATUSES.length];
     project.status = next;
-    appendLog(project, `{cyan-fg}[termdeck]{/cyan-fg} status changed to {bold}${next}{/bold}`, 'system');
+    appendLog(project, `{#89b4fa-fg}[termdeck]{/#89b4fa-fg} status changed to {bold}${next}{/bold}`, 'system');
     setStatus(`${project.name}: status \u2192 ${next}`);
     if (!config.demoMode) {
       try { saveConfig(config); } catch (_) { /* best effort */ }
@@ -687,10 +905,8 @@ function launchDashboard(config, options = {}) {
   screen.key(['o'], () => { if (!searchActive) openTool('opencode'); });
   screen.key(['f'], () => { if (!searchActive) openTool('freebuff'); });
   screen.key(['k'], () => { if (!searchActive) openTool('kilocode'); });
-  screen.key(['a'], () => { if (!searchActive) openTool('opencode'); });
   screen.key(['S-x'], () => { if (!searchActive) stopDevServer(); });
   screen.key(['j'], () => { if (!searchActive) projectList.down(1); });
-  screen.key(['k'], () => { if (!searchActive) projectList.up(1); });
   screen.key(['tab'], () => { if (!searchActive) screen.focusNext(); });
   screen.key(['S-tab'], () => { if (!searchActive) screen.focusPrevious(); });
   screen.key(['S-g', 'end'], () => logView.followTail());
@@ -699,7 +915,7 @@ function launchDashboard(config, options = {}) {
   screen.key(['S-pageup', 'home'], () => logView.scrollTop());
 
   /* ---------------------------------------------------------------- *
-   * Filter chips: 1 = ALL, 2 = LIVE, 3 = EXP, 4 = PEND, 5 = SCRAP
+   * Filter chips: 1 = ALL, 2 = LIVE, 3 = EXP, 4 = PEND, 5 = UNKNOWN, 6 = SCRAP
    * ---------------------------------------------------------------- */
 
   const FILTER_KEYS = {
@@ -707,7 +923,8 @@ function launchDashboard(config, options = {}) {
     '2': 'live',
     '3': 'exp',
     '4': 'pend',
-    '5': 'scrap',
+    '5': 'unknown',
+    '6': 'scrap',
   };
   screen.on('keypress', (ch, key) => {
     // While search mode is active, capture every keystroke for the search buffer.
@@ -743,7 +960,7 @@ function launchDashboard(config, options = {}) {
       return; // ignore everything else while search-active
     }
 
-    // Filter chips: 1–5.
+    // Filter chips: 1–6.
     if (FILTER_KEYS.hasOwnProperty(ch)) {
       status.chip = FILTER_KEYS[ch];
       refreshList();
@@ -796,7 +1013,7 @@ function launchDashboard(config, options = {}) {
     }
   }
 
-  // Staggered git-info refresh so the first 14 git spawns do not block the
+  // Staggered git-info refresh so the first git spawns do not block the
   // initial render.  Each spawn takes ~30-60 ms on a warm filesystem.
   let gitBootIdx = 0;
   const gitBoot = setInterval(() => {
@@ -820,6 +1037,8 @@ function launchDashboard(config, options = {}) {
   if (bootMonitor.unref) bootMonitor.unref();
 
   screen.render();
+  updateHeader(); // re-center the title now that geometry exists
+  screen.render();
 
   // One-shot boot toast (e.g. "✨ Discovered and added 2 new projects") from
   // the launch flow's silent auto-discovery. Routed through setStatus so it
@@ -831,7 +1050,7 @@ function launchDashboard(config, options = {}) {
 
   return {
     screen,
-    widgets: { header, projectList, card, logBox, footer, buttons },
+    widgets: { header, title: banner, statsBar, projectList, card, logBox, footer, buttons },
     servers,
     logView,
     runStates,

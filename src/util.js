@@ -49,10 +49,36 @@ function padEnd(text, width) {
   return str.length >= width ? str : str + ' '.repeat(width - str.length);
 }
 
-/** `HH:MM:SS` timestamp for log lines. */
-function timestamp(date = new Date()) {
+/** Friendly month names used by the short date forms. */
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * `4:42:09 PM` — 12-hour clock for a Date, ISO string or epoch ms.
+ * Returns null when the value cannot be parsed.
+ */
+function formatTime(value) {
+  if (value == null || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
   const p = (n) => String(n).padStart(2, '0');
-  return `${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
+  let hours = d.getHours();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours %= 12;
+  if (hours === 0) hours = 12;
+  return `${hours}:${p(d.getMinutes())}:${p(d.getSeconds())} ${ampm}`;
+}
+
+/** `May 18, 2025 4:42:09 PM` — 12-hour time with the date kept visible. */
+function formatTimestamp(value) {
+  if (value == null || value === '') return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${formatTime(d)}`;
+}
+
+/** `4:42:09 PM` timestamp for log lines (12-hour clock). */
+function timestamp(date = new Date()) {
+  return formatTime(date) || '';
 }
 
 /**
@@ -230,6 +256,8 @@ module.exports = {
   truncate,
   padEnd,
   timestamp,
+  formatTime,
+  formatTimestamp,
   normalizeLocalUrl,
   extractLocalUrl,
   splitLines,

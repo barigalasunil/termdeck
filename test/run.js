@@ -98,6 +98,27 @@ test('truncate adds an ellipsis only when needed', () => {
   assert.strictEqual(util.truncate('abcdefghij', 5), 'abcd\u2026');
 });
 
+test('formatTime renders a 12-hour clock with AM/PM', () => {
+  assert.strictEqual(util.formatTime(new Date(2025, 4, 18, 0, 0, 0)), '12:00:00 AM');
+  assert.strictEqual(util.formatTime(new Date(2025, 4, 18, 4, 42, 9)), '4:42:09 AM');
+  assert.strictEqual(util.formatTime(new Date(2025, 4, 18, 12, 0, 0)), '12:00:00 PM');
+  assert.strictEqual(util.formatTime(new Date(2025, 4, 18, 16, 42, 9)), '4:42:09 PM');
+  assert.strictEqual(util.formatTime(new Date(2025, 4, 18, 23, 59, 59)), '11:59:59 PM');
+  assert.strictEqual(util.formatTime('not-a-date'), null);
+  assert.strictEqual(util.formatTime(null), null);
+});
+
+test('formatTimestamp keeps the date visible before a 12-hour time', () => {
+  assert.strictEqual(util.formatTimestamp(new Date(2025, 4, 18, 16, 42, 9)), 'May 18, 2025 4:42:09 PM');
+  assert.strictEqual(util.formatTimestamp(new Date(2026, 11, 31, 0, 0, 0)), 'Dec 31, 2026 12:00:00 AM');
+  assert.strictEqual(util.formatTimestamp('garbage'), null);
+});
+
+test('timestamp (log lines) uses a 12-hour clock with AM/PM', () => {
+  assert.strictEqual(util.timestamp(new Date(2025, 4, 18, 16, 42, 9)), '4:42:09 PM');
+  assert.strictEqual(util.timestamp(new Date(2025, 4, 18, 0, 0, 0)), '12:00:00 AM');
+});
+
 test('which finds node on PATH', () => {
   const found = util.which(process.platform === 'win32' ? 'node.exe' : 'node');
   assert.ok(found, 'expected node on PATH');

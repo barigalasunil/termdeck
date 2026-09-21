@@ -106,7 +106,7 @@ async function main() {
     assert.strictEqual(widgets.projectList.items.length, 2, 'two project rows');
     const firstRow = widgets.projectList.ritems[0];
     assert.ok(firstRow.includes('fake-app'), firstRow);
-    assert.ok(firstRow.includes('{green-fg}●{/green-fg}'), firstRow);
+    assert.ok(firstRow.includes('{#a6e3a1-fg}●{/#a6e3a1-fg}'), firstRow);
 
     // 2. The selected project card shows name, status and description.
     const cardText = widgets.card.getContent();
