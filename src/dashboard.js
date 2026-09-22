@@ -635,24 +635,19 @@ function launchDashboard(config, options = {}) {
     const modern = modernStatusOf(project);
     const sFg = statusFg(modern);
     const inner = Math.max(24, Math.floor(screen.cols * 0.6) - 4);
-    const runPid = state && state.pid ? state.pid : null;
     const info = gitInfo.get(project.path);
     const stats = processStats.get(project.path);
-    const pidLabel = runPid
-      ? String(runPid)
-      : stats && stats.pid
-        ? String(stats.pid)
-        : config.demoMode && project.port
-          ? `${DEMO_PID} {${THEME.textDim}-fg}(demo){/${THEME.textDim}-fg}`
-          : '\u2014';
     const memCpu = stats && stats.memory
       ? `${escapeBraces(stats.memory)} \u00b7 ${escapeBraces(stats.cpu || '\u2014')}`
       : config.demoMode
         ? `213.4 MB \u00b7 0.8% {${THEME.textDim}-fg}(demo){/${THEME.textDim}-fg}`
         : '\u2014';
     const dirty = info && info.dirty ? info.dirty : { added: 0, removed: 0 };
-    const dirtyLabel = dirty.added || dirty.removed
-      ? ` {#f38ba8-fg}+${dirty.added}{/#f38ba8-fg}{#89b4fa-fg} -${dirty.removed}{/#89b4fa-fg}`
+    const dirtyLabel = dirty.added
+      ? ` {${STATUS_FG.live}-fg}+${dirty.added}{/${STATUS_FG.live}-fg}`
+      : '';
+    const dirtyLabel2 = dirty.removed
+      ? ` {#f38ba8-fg}-${dirty.removed}{/#f38ba8-fg}`
       : '';
     const branch = (info && info.branch) || project.branch || '\u2014';
     const hash = (info && info.commitHash) || (project.lastCommit && project.lastCommit.hash) || '';
@@ -668,16 +663,24 @@ function launchDashboard(config, options = {}) {
       ? `{${STATUS_FG.unknown}-fg}{bold}[?] Unknown{/bold}{/${STATUS_FG.unknown}-fg}`
       : `{${sFg}-fg}{bold}[${modern.toUpperCase()}]{/bold} ${fullLabel}{/${sFg}-fg}`;
 
+    // Escapes plain values for blessed markup; set `raw` for values that already
+    // carry blessed tags (branch colors, mem/cpu demo suffix).
+    const row = (label, value, raw) => {
+      const v = truncate(value, Math.max(4, inner - label.length - 2));
+      return ` {${THEME.textDim}-fg}${label}{/${THEME.textDim}-fg} ${raw ? v : escapeBraces(v)}`;
+    };
+    const selector = `{${STATUS_FG.live}-fg}${escapeBraces(truncate(branch, 30))}{/${STATUS_FG.live}-fg}`;
+
     const lines = [
-      ` {${sFg}-fg}●{/${sFg}-fg} {bold}${escapeBraces(truncate(project.name, 40))}{/bold}`,
+      ` {${sFg}-fg}\u25cf{/${sFg}-fg} {bold}${escapeBraces(truncate(project.name, 40))}{/bold}`,
       ` {${THEME.textDim}-fg}${escapeBraces(truncate(project.info || '(no description)', inner - 2))}{/${THEME.textDim}-fg}`,
-      ` {${THEME.textDim}-fg}Path:{/${THEME.textDim}-fg} ${escapeBraces(truncate(displayPath(project.path, config.root), inner - 8))}`,
-      ` {${THEME.textDim}-fg}Status:{/${THEME.textDim}-fg} ${statusChip}  {${THEME.textDim}-fg}Branch:{/${THEME.textDim}-fg} {${STATUS_FG.live}-fg}${escapeBraces(truncate(branch, 30))}{/${STATUS_FG.live}-fg}${dirtyLabel}`,
-      ` {${THEME.textDim}-fg}Dev port:{/${THEME.textDim}-fg} ${project.port || '\u2014'}   {${THEME.textDim}-fg}PID:{/${THEME.textDim}-fg} ${pidLabel}`,
-      ` {${THEME.textDim}-fg}Package mgr:{/${THEME.textDim}-fg} ${escapeBraces(String(project.packageManager || '\u2014'))}`,
-      ` {${THEME.textDim}-fg}Stack:{/${THEME.textDim}-fg} ${escapeBraces(truncate(getProjectStack(project), inner - 12))}`,
-      ` {${THEME.textDim}-fg}Mem/CPU:{/${THEME.textDim}-fg} ${memCpu}`,
-      ` {${THEME.textDim}-fg}Last commit:{/${THEME.textDim}-fg} ${escapeBraces(truncate(commit, inner - 16))}`,
+      ` {${THEME.textDim}-fg}Status:{/${THEME.textDim}-fg} ${statusChip}`,
+      row('Path:', displayPath(project.path, config.root)),
+      row('Branch:', `${selector}${dirtyLabel}${dirtyLabel2}`, true),
+      row('Package mgr:', String(project.packageManager || '\u2014')),
+      row('Stack:', stackLabel(project)),
+      row('Mem/CPU:', memCpu, true),
+      row('Last commit:', commit),
       devStateLine(project, state),
     ];
 
@@ -798,6 +801,12 @@ function launchDashboard(config, options = {}) {
     if (config.demoMode) return '\u2014';
     if (!stackInfo.has(project.path)) stackInfo.set(project.path, detectStack(project.path));
     return stackInfo.get(project.path) || '\u2014';
+  }
+
+  /** Stack shown as comma-separated names, even when config used dashes. Plain
+   *  audit text — the row() helper escapes it for blessed markup. */
+  function stackLabel(project) {
+    return String(getProjectStack(project) || '\u2014').replace(/\s*-\s*/g, ', ');
   }
 
   function refreshProjectStack(project) {
