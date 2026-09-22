@@ -594,16 +594,16 @@ function launchDashboard(config, options = {}) {
 
   function listItems() {
     const inner = Math.max(12, Math.floor(screen.cols * 0.4) - 4);
-    const nameWidth = Math.max(6, inner - 12);
     return filteredProjects().map((project) => {
       const state = runStates.get(project.path);
       const running = state && (state.status === 'running' || state.status === 'starting');
       const modern = modernStatusOf(project);
       const dotFg = running ? (state.status === 'running' ? STATUS_FG.live : STATUS_FG.exp) : statusFg(modern);
-      const name = escapeBraces(truncate(project.name, nameWidth));
+      const name = escapeBraces(truncate(project.name, Math.max(6, inner - 14)));
       const info = gitInfo.get(project.path);
-      const activity = escapeBraces(truncate(project.lastActivity || timeAgo(info && info.lastCommitAt) || '\u2014', 10));
-      return `{${dotFg}-fg}●{/${dotFg}-fg} ${name} {${THEME.textDim}-fg}${activity}{/${THEME.textDim}-fg}`;
+      const activity = escapeBraces(String(truncate(project.lastActivity || timeAgo(info && info.lastCommitAt) || '\u2014', 10)));
+      const pads = ' '.repeat(Math.max(0, inner - name.length - activity.length - 3));
+      return `{${dotFg}-fg}\u25cf{/${dotFg}-fg} ${name}${pads} {${THEME.textDim}-fg}${activity}{/${THEME.textDim}-fg}`;
     });
   }
 
