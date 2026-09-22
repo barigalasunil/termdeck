@@ -53,6 +53,7 @@ const THEME = {
   surface: '#181825',   // slightly darker panels (output, footer)
   text: '#cdd6f4',      // general text (light gray-white)
   textDim: '#9399b2',   // secondary text (timestamps, labels)
+  tagCyan: '#94e2d5',   // log [termdeck] source tag
   border: '#45475a',    // thin, unobtrusive box borders
   accentBg: '#3b82f6',  // selected-project / focused-button highlight
   accentFg: '#ffffff',
@@ -781,13 +782,18 @@ function launchDashboard(config, options = {}) {
 
   /** Log lines from child processes are raw text -> escape blessed markup. */
   function appendLog(project, line, stream = 'stdout') {
-    const fg = colorFor(project);
-    const prefix = `{${THEME.textDim}-fg}${timestamp()}{/${THEME.textDim}-fg} {${fg}-fg}${escapeBraces(truncate(project.name, 10))}{/${fg}-fg}`;
+    const time = `{${THEME.textDim}-fg}${timestamp()}{/${THEME.textDim}-fg}`;
     if (stream === 'system') {
-      logView.push(`${prefix} {#89b4fa-fg}[termdeck]{/#89b4fa-fg} ${line}`);
+      // Give generic notes a cyan [termdeck] tag; lines that already carry their
+      // own [tag] keep it.
+      const visible = String(line).replace(/^(?:\{[^{}]*\})*/, '').replace(/^\s+/, '');
+      const tag = visible.startsWith('[') ? '' : `{${THEME.tagCyan}-fg}[termdeck]{/${THEME.tagCyan}-fg} `;
+      logView.push(`${time} ${tag}${line}`);
       return;
     }
-    const marker = stream === 'stderr' ? '{#f38ba8-fg}✗{/#f38ba8-fg} ' : '';
+    const fg = colorFor(project);
+    const prefix = `{${THEME.textDim}-fg}${timestamp()}{/${THEME.textDim}-fg} ${escapeBraces(truncate(project.name, 10))}`;
+    const marker = stream === 'stderr' ? '{#f38ba8-fg}\u2717{/#f38ba8-fg} ' : '';
     logView.push(`${prefix} ${marker}${escapeBraces(line)}`);
   }
 
@@ -941,7 +947,7 @@ function launchDashboard(config, options = {}) {
 
   function runGitCommit(project, message) {
     logView.followTail();
-    appendLog(project, `{#89b4fa-fg}[git]{/#89b4fa-fg} committing and pushing…`, 'system');
+    appendLog(project, `{${STATUS_FG.live}-fg}[git]{/${STATUS_FG.live}-fg} committing and pushing…`, 'system');
     let result;
     try {
       result = commitAndPush(project.path, message, {
@@ -1038,7 +1044,7 @@ function launchDashboard(config, options = {}) {
 
     // Agent: launch in a new terminal with log capture via tee where possible.
     const agentName = AGENT_LABELS[kind] || kind;
-    appendLog(project, `{#89b4fa-fg}[${escapeBraces(kind)}]{/#89b4fa-fg} launching ${escapeBraces(agentName)} in a new terminal`, 'system');
+    appendLog(project, `{${STATUS_FG.exp}-fg}[${escapeBraces(kind)}]{/${STATUS_FG.exp}-fg} launching ${escapeBraces(agentName)} in a new terminal`, 'system');
     setStatus(`Launching ${agentName} for ${project.name}\u2026`);
     const result = await launchAgent(project, kind);
     if (result.ok) {
@@ -1063,7 +1069,7 @@ function launchDashboard(config, options = {}) {
     const index = MODERN_STATUSES.indexOf(current);
     const next = MODERN_STATUSES[(index + 1) % MODERN_STATUSES.length];
     project.status = next;
-    appendLog(project, `{#89b4fa-fg}[termdeck]{/#89b4fa-fg} status changed to {bold}${next}{/bold}`, 'system');
+    appendLog(project, `{${THEME.tagCyan}-fg}[termdeck]{/${THEME.tagCyan}-fg} status changed to {bold}${next}{/bold}`, 'system');
     setStatus(`${project.name}: status \u2192 ${next}`);
     if (!config.demoMode) {
       try { saveConfig(config); } catch (_) { /* best effort */ }
@@ -1297,7 +1303,7 @@ function launchDashboard(config, options = {}) {
   projectList.focus();
   refreshList();
   updateCard();
-  appendLog({ name: 'termdeck', path: '__termdeck__' }, `{bold}termdeck{/bold} ready — ${projects.length} projects from ${escapeBraces(displayPath(config.root, config.root))}`, 'system');
+  appendLog({ name: 'termdeck', path: '__termdeck__' }, `{bold}termdeck{/bold} ready - ${projects.length} projects discovered from ${escapeBraces(displayPath(config.root, config.root))}`, 'system');
   appendLog({ name: 'termdeck', path: '__termdeck__' }, `pick a project and press {bold}r{/bold} for the dev server, {bold}e{/bold} for your editor, {bold}c/x/o/f/k{/bold} for an agent.`, 'system');
   if (config.demoMode) {
     const demoProject = projects[0] || { name: 'hyperion-core', path: 'demo' };
