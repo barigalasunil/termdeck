@@ -13,7 +13,8 @@ green.
 
 ## Scope
 
-The entire change is a visual restructure of `src/dashboard.js`. The controller
+The entire change is a visual restructure of `src/dashboard.js` plus one
+non-breaking export (`activeTails()`) in `src/agentManager.js`. The controller
 contract the codebase depends on is preserved unchanged:
 
 - `widgets.projectList` (a `blessed.list`), `widgets.card`,
@@ -59,7 +60,9 @@ detailsHeight = body - actionsHeight - outputHeight;
 - 24-hour clock `15:14:19` far left (local helper; log timestamps stay 12-h).
 - ` T E R M D E C K ` in a small green-bordered box, centered.
 - DAEMON indicator far right: green `● DAEMON ON` while any dev server is
-  running, dim `○ DAEMON OFF` otherwise. Refreshed with `refreshList`.
+  running or any agent log is being streamed (active tail), dim `○ DAEMON OFF`
+  otherwise. Refreshed with `refreshList`. Requires a new non-breaking
+  `activeTails()` export in `src/agentManager.js`.
 
 ### Strip 2 (3 rows)
 
