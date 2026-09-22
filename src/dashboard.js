@@ -7,10 +7,10 @@
  * exactly the rows it needs, with zero gaps between panes:
  *
  *   +-------------------------------------------------------------------+
- *   |                             TERMDECK                              |
- *   |                       Sep 21, 2026 3:30:59 PM                     |
- *   +-------------------------------------------------------------------+
- *   | [ALL 14] [LIVE 6] [EXP 4] …   /search (regex)                     |
+ *   | 15:14:19        +------------+          ● DAEMON ON               |
+ *   |                 | TERMDECK   |                                    |
+ *   |                 +------------+                                    |
+ *   | [ALL 14] [LIVE 6] [EXP 4] …               /search (regex) [box]   |
  *   +---------------------------------+---------------------------------+
  *   | PROJECTS (14)                   | DETAILS: hyperion-core          |
  *   |  ● hyperion-core      12m ago   |  status / path / branch / port  |
@@ -42,7 +42,7 @@ const { getGitInfo, detectStack, generateCommitMessage, commitAndPush } = requir
 const { launchAgent, tailAgentLog, stopAllAgents } = require('./agentManager');
 const { startMonitoring, stopMonitoring, stopAllMonitoring } = require('./processMonitor');
 
-const LAYOUT = { rows: 12, cols: 12, headerHeight: 6, footerHeight: 1 };
+const LAYOUT = { rows: 12, cols: 12, headerHeight: 6, footerHeight: 2 };
 
 /* ------------------------------------------------------------------ *
  * Theme — dark, modern palette, pastel status tags, thin borders.
@@ -54,8 +54,9 @@ const THEME = {
   text: '#cdd6f4',      // general text (light gray-white)
   textDim: '#9399b2',   // secondary text (timestamps, labels)
   border: '#45475a',    // thin, unobtrusive box borders
-  accentBg: '#3b82f6',  // selected-project highlight (bright blue)
+  accentBg: '#3b82f6',  // selected-project / focused-button highlight
   accentFg: '#ffffff',
+  chipBg: '#2d2d3f',    // action-button / stat-chip background
 };
 
 /** Pastel status colours per modern status; `unknown` is neutral gray. */
@@ -188,39 +189,112 @@ function launchDashboard(config, options = {}) {
     return el;
   }
 
-  // Full-width masthead. A green-outlined title strip on the dark terminal
-  // background: the TERMDECK wordmark sits centred with the live clock below
-  // it, and vertical padding makes the strip read as a real header. No solid
-  // fill — just a clean line border and green text. updateHeader() refreshes
-  // the clock line every second. The box is created once and only its content
-  // is mutated — recreating it per tick leaked the renderer.
-  const TITLE_TEXT = ' TERMDECK ';
-  const TITLE_HEIGHT = 6; // line border + vertical padding + title + clock
-  const HEADER_ACCENT = '#00ff00';
-  const titleBox = blessed.box({
+  // Two-strip header: a 3-row masthead (clock | TERMDECK box | daemon) above a
+  // 3-row chips strip (status chips | search box). updateHeader() is the only
+  // renderer that mutates these.
+  const TITLE_TEXT = 'T E R M D E C K';
+  const LOGO_GREEN = '#00ff00';
+  const HEADER_ROWS = 6;
+  const CHIP_STRIP_TOP = 3;
+  const CHIP_ORDER = ['all', 'live', 'exp', 'pend', 'unknown', 'scrap'];
+  const CHIP_LABELS = { all: 'ALL', live: 'LIVE', exp: 'EXP', pend: 'PEND', unknown: 'UNKNOWN', scrap: 'SCRAP' };
+  const CHIP_WIDTHS = { all: 8, live: 8, exp: 8, pend: 8, unknown: 12, scrap: 11 };
+  const CHIP_COLORS = { live: STATUS_FG.live, exp: STATUS_FG.exp, pend: STATUS_FG.pend, unknown: STATUS_FG.unknown, scrap: STATUS_FG.scrap };
+
+  /** `15:14:19` — 24-hour clock for the masthead (logs stay 12-hour). */
+  function h24Time(date = new Date()) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
+  }
+
+  const masthead = blessed.box({
     parent: screen,
     top: 0,
     left: 0,
     width: '100%',
-    height: TITLE_HEIGHT,
-    tags: true,
-    padding: { top: 1, bottom: 1 },
-    border: { type: 'line', fg: HEADER_ACCENT },
-    style: { fg: HEADER_ACCENT, bold: true },
-  });
-
-  // Stats + search strip sits directly under the masthead (no gap).
-  const statsBar = blessed.box({
-    parent: screen,
-    top: TITLE_HEIGHT,
-    left: 0,
-    width: '100%',
-    height: 1,
+    height: 3,
     tags: true,
     style: { bg: THEME.bg, fg: THEME.text },
   });
 
-  const bodyTop = TITLE_HEIGHT + 1;   // masthead + stats bar, no gaps
+  const clockLabel = blessed.text({
+    parent: masthead,
+    top: 1,
+    left: 1,
+    height: 1,
+    tags: true,
+    content: '',
+    style: { fg: THEME.textDim, bg: THEME.bg },
+  });
+
+  const titleBox = blessed.box({
+    parent: masthead,
+    top: 0,
+    left: 'center',
+    width: TITLE_TEXT.length + 2,
+    height: 3,
+    tags: true,
+    align: 'center',
+    valign: 'middle',
+    border: { type: 'line', fg: LOGO_GREEN },
+    style: { fg: LOGO_GREEN, bold: true, bg: THEME.bg },
+    content: TITLE_TEXT,
+  });
+
+  const daemonLabel = blessed.text({
+    parent: masthead,
+    top: 1,
+    right: 1,
+    height: 1,
+    tags: true,
+    content: '',
+    style: { bg: THEME.bg },
+  });
+
+  // Row 2 of the header: bordered status chips at the left, bordered search box
+  // at the right. Chips are chunky 3-row boxes so the line border closes cleanly.
+  const chipStrip = blessed.box({
+    parent: screen,
+    top: CHIP_STRIP_TOP,
+    left: 0,
+    width: '100%',
+    height: 3,
+    tags: true,
+    style: { bg: THEME.bg, fg: THEME.text },
+  });
+
+  const searchBox = blessed.box({
+    parent: chipStrip,
+    top: 0,
+    right: 1,
+    width: Math.max(18, Math.min(26, Math.floor(screen.cols * 0.26))),
+    height: 3,
+    tags: true,
+    align: 'center',
+    valign: 'middle',
+    border: { type: 'line', fg: THEME.border },
+    style: { fg: THEME.textDim, bg: THEME.bg },
+  });
+
+  let chipCursor = 0;
+  const chipBoxes = CHIP_ORDER.map((key) => {
+    const box = blessed.box({
+      parent: chipStrip,
+      top: 0,
+      left: chipCursor,
+      width: CHIP_WIDTHS[key],
+      height: 3,
+      tags: true,
+      align: 'center',
+      valign: 'middle',
+      border: { type: 'line', fg: THEME.border },
+      style: { fg: CHIP_COLORS[key] ? CHIP_COLORS[key] : THEME.text, bg: THEME.bg },
+    });
+    chipCursor += CHIP_WIDTHS[key] + 1;
+    return box;
+  });
+
+  const bodyTop = HEADER_ROWS;   // masthead (3) + chips strip (3), no gaps
   const footerHeight = 1;
   const bodyHeight = Math.max(3, screen.rows - bodyTop - footerHeight);
 
@@ -430,37 +504,39 @@ function launchDashboard(config, options = {}) {
     return counts;
   }
 
-  function filterChips() {
+  function chipData() {
     const counts = modernCounts();
-    const chip = (label, count, color, key) => {
-      if (count <= 0) return '';
-      const active = status.chip === key;
-      return `{${color}-fg}${active ? '{bold}' : ''}[${label} ${count}]${active ? '{/bold}' : ''}{/${color}-fg}`;
-    };
-    const allActive = status.chip === null;
-    return [
-      `{${THEME.text}-fg}${allActive ? '{bold}' : ''}[ALL ${projects.length}]${allActive ? '{/bold}' : ''}{/${THEME.text}-fg}`,
-      chip('LIVE', counts.live, STATUS_FG.live, 'live'),
-      chip('EXP', counts.exp, STATUS_FG.exp, 'exp'),
-      chip('PEND', counts.pend, STATUS_FG.pend, 'pend'),
-      chip('UNKNOWN', counts.unknown, STATUS_FG.unknown, 'unknown'),
-      chip('SCRAP', counts.scrap, STATUS_FG.scrap, 'scrap'),
-    ].filter(Boolean).join(' ');
+    const activeKey = status.chip || 'all';
+    return CHIP_ORDER.map((key) => {
+      const count = key === 'all' ? projects.length : counts[key] || 0;
+      return { key, label: CHIP_LABELS[key], count, active: key === activeKey, hidden: key !== 'all' && count <= 0 };
+    });
   }
 
   function searchLabel() {
-    if (searchActive) return `/search: ${searchBuffer}`;
-    return status.search ? `/search: ${status.search}` : '/search (regex)';
+    if (searchActive) return `/search (regex): ${searchBuffer}`;
+    return status.search ? `/search (regex): ${status.search}` : '/search (regex)';
   }
 
   function updateHeader() {
-    const stats = filterChips();
-    const search = `{${THEME.textDim}-fg}${escapeBraces(searchLabel())}{/${THEME.textDim}-fg}`;
-    statsBar.setContent(` ${stats}   ${search} `);
-    // formatTimestamp() renders "Sep 21, 2026 3:30:59 PM"; fall back to the
-    // platform formatter only if the custom 12-hour/date renderer ever fails.
-    const clock = formatTimestamp(new Date()) || new Date().toLocaleTimeString();
-    titleBox.setContent(`{center}{bold}${TITLE_TEXT}{/bold}{/center}\n{center}${escapeBraces(clock)}{/center}`);
+    clockLabel.setContent(` ${h24Time()}`);
+    const busy = servers.runningCount > 0;
+    daemonLabel.setContent(busy
+      ? `{${STATUS_FG.live}-fg}● DAEMON ON{/${STATUS_FG.live}-fg}`
+      : `{${THEME.textDim}-fg}\u25cb DAEMON OFF{/${THEME.textDim}-fg}`);
+
+    chipData().forEach((chip, index) => {
+      const box = chipBoxes[index];
+      if (box.hidden === chip.hidden && box.content === `${chip.label} ${chip.count}` && box.active === chip.active) return;
+      box.hidden = chip.hidden;
+      box.setContent(`${chip.label} ${chip.count}`);
+      box.style.bg = chip.active ? THEME.accentBg : THEME.bg;
+      box.style.fg = chip.active ? THEME.accentFg : (CHIP_COLORS[chip.key] || THEME.text);
+      box.style.bold = chip.key === 'all';
+      box.active = chip.active;
+    });
+
+    searchBox.setContent(escapeBraces(searchLabel()));
   }
 
   /** Projects after the chip (status) + search (regex on name) filters. */
@@ -1200,7 +1276,7 @@ function launchDashboard(config, options = {}) {
 
   return {
     screen,
-    widgets: { header: titleBox, title: titleBox, statsBar, projectList, card, logBox, footer, buttons },
+    widgets: { header: titleBox, title: titleBox, statsBar: chipStrip, projectList, card, logBox, footer, buttons },
     servers,
     logView,
     runStates,
