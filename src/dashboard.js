@@ -394,18 +394,13 @@ function launchDashboard(config, options = {}) {
     style: { fg: THEME.accentFg, bg: THEME.accentBg },
   });
 
-  /**
-   * One-line action button, nested inside the ACTIONS cell. `focusBg/focusFg`
-   * drive the focused/hover look; the status button is re-styled at render
-   * time to nudge the user while a project has no status.
-   */
-  function makeButton({ content, fg, focusBg, focusFg, onPress }) {
+  function makeButton({ content, onPress }) {
     const button = blessed.button({
       parent: actionsShell,
       top: '0%',
       left: '0%',
       width: '47%',
-      height: '23%',
+      height: large ? 3 : 1,
       shrink: true,
       content,
       align: 'center',
@@ -414,11 +409,14 @@ function launchDashboard(config, options = {}) {
       mouse: true,
       clickable: true,
       autoFocus: false,
+      padding: large ? { left: 1, right: 1 } : {},
+      border: large ? { type: 'line', fg: THEME.border } : undefined,
       style: {
-        fg: fg || THEME.text,
-        bg: THEME.bg,
-        focus: { bg: focusBg || THEME.accentBg, fg: focusFg || THEME.accentFg, bold: true },
-        hover: { bg: focusBg || THEME.accentBg, fg: focusFg || THEME.accentFg, bold: true },
+        fg: THEME.text,
+        bg: THEME.chipBg,
+        focus: { bg: THEME.accentBg, fg: THEME.accentFg, bold: true },
+        hover: { bg: THEME.accentBg, fg: THEME.accentFg, bold: true },
+        border: large ? { fg: THEME.border } : undefined,
       },
     });
 
@@ -439,39 +437,27 @@ function launchDashboard(config, options = {}) {
   }
 
   const buttons = {};
-  const BUTTON_SLOTS = new Map();
 
-  /**
-   * 2-col x 5-row button grid nested inside the ACTIONS pane. Geometry is
-   * computed from the pane's exact row count so buttons never clip borders,
-   * even on an 80x24 terminal.
-   */
   function addButton(name, slot, content, opts) {
     const button = makeButton({ content, ...opts });
-    BUTTON_SLOTS.set(button, slot);
-    const inner = Math.max(1, actionsHeight - 2);
-    const regularRowH = Math.max(1, Math.floor(inner / 4));
-    const rowH = slot.row < 4 ? regularRowH : 1;
-    const used = 4 * regularRowH + 1;
-    const pad = Math.max(0, Math.floor((inner - used) / 2));
-    const topOffset = slot.row < 4 ? slot.row * regularRowH : 4 * regularRowH;
-    button.top = 1 + pad + topOffset;
+    const rowH = large ? 3 : 1;
+    button.top = 1 + slot.row * rowH;
     button.height = rowH;
-    button.left = slot.col === 0 ? '2%' : '52%';
-    button.width = '46%';
+    button.left = slot.col === 0 ? '2%' : '51%';
+    button.width = '47%';
     buttons[name] = button;
     return button;
   }
 
-  addButton('dev', { row: 0, col: 0 }, '{bold}[r]{/bold} Run dev server', { fg: STATUS_FG.live, onPress: () => startDevServer() });
-  addButton('editor', { row: 0, col: 1 }, '{bold}[e]{/bold} Open in editor', { fg: THEME.text, onPress: () => openTool('editor') });
-  addButton('claude', { row: 1, col: 0 }, `{bold}[c]{/bold} ${AGENT_LABELS.claude}`, { fg: '#f5c2e7', onPress: () => openTool('claude') });
-  addButton('codex', { row: 1, col: 1 }, `{bold}[x]{/bold} ${AGENT_LABELS.codex}`, { fg: '#94e2d5', onPress: () => openTool('codex') });
-  addButton('opencode', { row: 2, col: 0 }, `{bold}[o]{/bold} ${AGENT_LABELS.opencode}`, { fg: STATUS_FG.pend, onPress: () => openTool('opencode') });
-  addButton('freebuff', { row: 2, col: 1 }, `{bold}[f]{/bold} ${AGENT_LABELS.freebuff}`, { fg: STATUS_FG.exp, onPress: () => openTool('freebuff') });
-  addButton('kilocode', { row: 3, col: 0 }, `{bold}[k]{/bold} ${AGENT_LABELS.kilocode}`, { fg: '#cba6f7', onPress: () => openTool('kilocode') });
-  addButton('status', { row: 3, col: 1 }, '{bold}[s]{/bold} Change status', { fg: STATUS_FG.pend, onPress: () => cycleStatus() });
-  addButton('git', { row: 4, col: 0 }, '{bold}[g]{/bold} Git commit & push ▸ git', { fg: '#89b4fa', onPress: openGitCommitModal });
+  addButton('dev', { row: 0, col: 0 }, `{bold}[r]{/bold} Run dev server`, { onPress: () => startDevServer() });
+  addButton('editor', { row: 0, col: 1 }, `{bold}[e]{/bold} Open in editor`, { onPress: () => openTool('editor') });
+  addButton('claude', { row: 1, col: 0 }, `{bold}[c]{/bold} ${AGENT_LABELS.claude}`, { onPress: () => openTool('claude') });
+  addButton('codex', { row: 1, col: 1 }, `{bold}[x]{/bold} ${AGENT_LABELS.codex}`, { onPress: () => openTool('codex') });
+  addButton('opencode', { row: 2, col: 0 }, `{bold}[o]{/bold} ${AGENT_LABELS.opencode}`, { onPress: () => openTool('opencode') });
+  addButton('freebuff', { row: 2, col: 1 }, `{bold}[f]{/bold} ${AGENT_LABELS.freebuff}`, { onPress: () => openTool('freebuff') });
+  addButton('kilocode', { row: 3, col: 0 }, `{bold}[k]{/bold} ${AGENT_LABELS.kilocode}`, { onPress: () => openTool('kilocode') });
+  addButton('status', { row: 3, col: 1 }, `{bold}[s]{/bold} Change status`, { onPress: () => cycleStatus() });
+  addButton('git', { row: 4, col: 0 }, `{bold}[g]{/bold} Git commit & push \u25b8 git`, { onPress: openGitCommitModal });
 
   // Created after the buttons so tab-focus order is list -> actions -> output.
   const logBox = contrib.log({
