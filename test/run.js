@@ -1029,6 +1029,23 @@ test('tailAgentLog creates a log file and tails it', async () => {
   }
 });
 
+test('activeTails reflects how many agent logs are being streamed', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'am-active-'));
+  const project = { name: 'active', path: '/tmp/active', agents: {} };
+  assert.strictEqual(agentManager.activeTails(), 0);
+  try {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'active-claude.log'), 'line1\n');
+    const stop = agentManager.tailAgentLog(project, 'claude', () => {}, { logDir: tmpDir, intervalMs: 50 });
+    await sleep(200);
+    assert.strictEqual(agentManager.activeTails(), 1);
+    stop();
+    assert.strictEqual(agentManager.activeTails(), 0);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 /* ------------------------------------------------------------------ *
  * devServer crash auto-restart
  * ------------------------------------------------------------------ */

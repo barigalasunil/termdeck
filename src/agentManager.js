@@ -203,8 +203,14 @@ function isTailing(project, agentName) {
   return tailing.has(tailKey(project, agentName));
 }
 
+/** Number of agent log tails currently being streamed. */
+function activeTails() {
+  return tailing.size;
+}
+
 module.exports = {
   AGENT_COMMANDS,
+  activeTails,
   logDir,
   logFileName,
   logFilePath,
