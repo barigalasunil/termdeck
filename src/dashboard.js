@@ -189,6 +189,23 @@ function launchDashboard(config, options = {}) {
     return el;
   }
 
+  /**
+   * Right-aligned header text drawn on a pane's top border, using the same
+   * top:-1 trick blessed uses for its own left labels. Tags are parsed, so the
+   * right header can carry its own colors (e.g. green "STREAM ACTIVE").
+   */
+  function paneHeaderRight(parent, content, fg = THEME.textDim) {
+    return blessed.text({
+      parent,
+      top: -1,
+      right: 1,
+      height: 1,
+      tags: true,
+      content,
+      style: { fg, bg: 'transparent' },
+    });
+  }
+
   // Two-strip header: a 3-row masthead (clock | TERMDECK box | daemon) above a
   // 3-row chips strip (status chips | search box). updateHeader() is the only
   // renderer that mutates these.
@@ -294,9 +311,16 @@ function launchDashboard(config, options = {}) {
     return box;
   });
 
-  const bodyTop = HEADER_ROWS;   // masthead (3) + chips strip (3), no gaps
-  const footerHeight = 1;
-  const bodyHeight = Math.max(3, screen.rows - bodyTop - footerHeight);
+  const bodyTop = HEADER_ROWS;                 // masthead + chips strip
+  const footerHeight = 2;                      // bordered footer box
+  const bodyHeight = Math.max(6, screen.rows - bodyTop - footerHeight);
+  // Bordered buttons need 5 rows x 3 cells (15) + border(2) + label-row(0). When the
+  // window is too short (80x24 → body 16), the grid collapses to 1-line chips.
+  const large = bodyHeight >= 29;
+  const actionsHeight = large ? 18 : 8;        // border(2) + grid(5x3 or 5x1)
+  const outputHeight = Math.max(3, Math.min(large ? 6 : 4, bodyHeight - actionsHeight - (large ? 8 : 5)));
+  const cardHeight = Math.max(3, bodyHeight - actionsHeight - outputHeight);
+  const logHeight = outputHeight;
 
   const projectList = blessed.list({
     parent: screen,
@@ -319,13 +343,10 @@ function launchDashboard(config, options = {}) {
     },
   });
   panel(projectList, ' PROJECTS ');
+  paneHeaderRight(projectList, ' SORT: RECENT ');
 
   const rightLeft = '40%';
   const rightWidth = '60%';
-  const cardHeight = Math.max(3, Math.round(bodyHeight * 0.42));
-  // The ACTIONS pane must fit 4 button rows plus borders; OUTPUT gets the rest.
-  const actionsHeight = Math.max(6, Math.round(bodyHeight * 0.34));
-  const logHeight = Math.max(3, bodyHeight - cardHeight - actionsHeight);
 
   const card = blessed.box({
     parent: screen,
@@ -339,6 +360,7 @@ function launchDashboard(config, options = {}) {
     border: { type: 'line', fg: THEME.border },
   });
   panel(card, ' DETAILS ');
+  const gitHeader = paneHeaderRight(card, '{#a6e3a1-fg}GIT: CLEAN{/#a6e3a1-fg}');
 
   const actionsShell = blessed.box({
     parent: screen,
@@ -349,7 +371,8 @@ function launchDashboard(config, options = {}) {
     tags: true,
     border: { type: 'line', fg: THEME.border },
   });
-  panel(actionsShell, ' ACTIONS — r/e/c/x/o/f/k/s or [Enter] ');
+  panel(actionsShell, ' ACTIONS - r/e/c/x/o/f/k/s or [Enter] ');
+  paneHeaderRight(actionsShell, ' KEYMAP: VIM/CLI ');
 
   const footer = blessed.box({
     parent: screen,
@@ -454,7 +477,8 @@ function launchDashboard(config, options = {}) {
     border: { type: 'line', fg: THEME.border },
     style: { bg: THEME.surface, item: { fg: THEME.text }, selected: { fg: THEME.text, bg: '#313244' } },
   });
-  panel(logBox, ' OUTPUT (dev server / agents) ');
+  panel(logBox, ' OUTPUT (dev server / agents)  autoscroll [ON] ');
+  paneHeaderRight(logBox, ` BUFFER: 1024L {${STATUS_FG.live}-fg}STREAM ACTIVE{/${STATUS_FG.live}-fg} `);
 
   const logView = new LogView(logBox, {
     maxLines: 800,
@@ -650,6 +674,10 @@ function launchDashboard(config, options = {}) {
 
     card.setContent(lines.join('\n'));
     card.setLabel(` DETAILS: ${project.name} `);
+    const dirtyNow = Boolean(dirty && (dirty.added || dirty.removed));
+    gitHeader.setContent(dirtyNow
+      ? `{#f38ba8-fg}GIT: DIRTY{/#f38ba8-fg}`
+      : `{#a6e3a1-fg}GIT: CLEAN{/#a6e3a1-fg}`);
 
     // Visual cue while the status is unknown: red button asking to be set.
     if (unknown) {
