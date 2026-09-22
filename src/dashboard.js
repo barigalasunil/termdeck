@@ -98,7 +98,7 @@ const DEMO_PID = 49201;
 const SAMPLE_CONFIG_PATH = path.join(__dirname, '..', 'sample-config.json');
 
 const FOOTER_KEYS =
-  '{bold}↑↓{/bold} navigate  {bold}tab{/bold} pane  {bold}s{/bold} status  {bold}/{/bold} search  {bold}r{/bold} dev  {bold}g{/bold} git  {bold}shift+x{/bold} stop  {bold}q{/bold} quit';
+  '{bold}\u2191\u2193{/bold} navigate  {bold}tab{/bold} pane  {bold}s{/bold} status  {bold}/{/bold} search  {bold}r{/bold} dev  {bold}shift+x{/bold} stop  {bold}q{/bold} quit';
 const HINTS = ` ${FOOTER_KEYS} `;
 
 /** Colour-coded demo log lines so the OUTPUT pane styling can be checked. */
@@ -374,14 +374,23 @@ function launchDashboard(config, options = {}) {
   panel(actionsShell, ' ACTIONS - r/e/c/x/o/f/k/s or [Enter] ');
   paneHeaderRight(actionsShell, ' KEYMAP: VIM/CLI ');
 
-  const footer = blessed.box({
+  const footerMeta = blessed.box({
     parent: screen,
     top: bodyTop + bodyHeight,
     left: 0,
     width: '100%',
-    height: footerHeight,
+    height: 1,
     tags: true,
-    style: { fg: THEME.text, bg: THEME.surface },
+    style: { fg: THEME.textDim, bg: THEME.surface },
+  });
+  const footer = blessed.box({
+    parent: screen,
+    top: bodyTop + bodyHeight + 1,
+    left: 0,
+    width: '100%',
+    height: 1,
+    tags: true,
+    style: { fg: THEME.accentFg, bg: THEME.accentBg },
   });
 
   /**
@@ -693,18 +702,38 @@ function launchDashboard(config, options = {}) {
     screen.render();
   }
 
-  function buildFooter() {
+  function footerHints() {
+    if (screen.cols >= 110) return FOOTER_KEYS;
+    if (screen.cols >= 90) return '{bold}\u2191\u2193{/bold} navigate  {bold}s{/bold} status  {bold}r{/bold} dev  {bold}shift+x{/bold} stop  {bold}q{/bold} quit';
+    return '{bold}\u2191\u2193{/bold} navigate  {bold}s{/bold} status  {bold}r{/bold} dev  {bold}q{/bold} quit';
+  }
+
+  function buildFooterRow1() {
+    const showing = ` SHOWING ${filteredProjects().length} OF ${projects.length} `;
+    const press = 'PRESS [/] FILTER';
+    const centerAt = Math.floor(screen.cols / 2) - Math.floor(press.length / 2);
+    const pad = Math.max(0, centerAt - showing.length);
+    const row = `${showing}${' '.repeat(pad)}${press}`.slice(0, screen.cols);
+    return row;
+  }
+
+  function buildFooterRow2() {
     const sel = selectedProject();
     const index = sel ? filteredProjects().indexOf(sel) + 1 : 0;
     const paneLabel = currentPane();
     const size = `${screen.cols}x${screen.rows}`;
     const chipLabel = status.chip ? status.chip.toUpperCase() : 'ALL';
     const search = status.search ? ` /${status.search}` : '';
-    return ` {${THEME.text}-fg}[${index}/${filteredProjects().length}] SELECTED  FILTER: ${chipLabel}${search}{/${THEME.text}-fg}   ${FOOTER_KEYS}   {${THEME.textDim}-fg}PANE: [${paneLabel}] \u2502 ${size}{/${THEME.textDim}-fg} `;
+    const fixed = `[${index}/${filteredProjects().length}] SELECTED  FILTER: ${chipLabel}${search}`;
+    const hints = ` ${footerHints()} `;
+    const tail = ` PANE: [${paneLabel}] \u2502 ${size} `;
+    const row = ` ${fixed}${hints}${tail}`.slice(0, screen.cols);
+    return row;
   }
 
   function updateFooter() {
-    footer.setContent(buildFooter());
+    footerMeta.setContent(buildFooterRow1());
+    footer.setContent(buildFooterRow2());
   }
 
   function currentPane() {
@@ -735,6 +764,7 @@ function launchDashboard(config, options = {}) {
   function setStatus(message) {
     if (status.timer) clearTimeout(status.timer);
     status.message = message;
+    footerMeta.setContent(buildFooterRow1());
     footer.setContent(` {bold}${escapeBraces(message)}{/bold}`);
     screen.render();
 
