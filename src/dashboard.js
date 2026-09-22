@@ -38,7 +38,7 @@ const { openInNewTerminal } = require('./terminal');
 const { LogView } = require('./logView');
 const { MODERN_STATUSES, loadConfig, loadConfigFromPath, displayPath, saveConfig } = require('./config');
 const { escapeBraces, truncate, formatTimestamp, timestamp, timeAgo } = require('./util');
-const { getGitInfo } = require('./projectManager');
+const { getGitInfo, detectStack, generateCommitMessage, commitAndPush } = require('./projectManager');
 const { launchAgent, tailAgentLog, stopAllAgents } = require('./agentManager');
 const { startMonitoring, stopMonitoring, stopAllMonitoring } = require('./processMonitor');
 
@@ -97,7 +97,7 @@ const DEMO_PID = 49201;
 const SAMPLE_CONFIG_PATH = path.join(__dirname, '..', 'sample-config.json');
 
 const FOOTER_KEYS =
-  '{bold}↑↓{/bold} navigate  {bold}tab{/bold} pane  {bold}s{/bold} status  {bold}/{/bold} search  {bold}r{/bold} dev  {bold}shift+x{/bold} stop  {bold}q{/bold} quit';
+  '{bold}↑↓{/bold} navigate  {bold}tab{/bold} pane  {bold}s{/bold} status  {bold}/{/bold} search  {bold}r{/bold} dev  {bold}g{/bold} git  {bold}shift+x{/bold} stop  {bold}q{/bold} quit';
 const HINTS = ` ${FOOTER_KEYS} `;
 
 /** Colour-coded demo log lines so the OUTPUT pane styling can be checked. */
@@ -153,10 +153,12 @@ function launchDashboard(config, options = {}) {
   const palette = new Map();
   const status = { message: null, timer: null, quitArmed: false, quitTimer: null, clock: null, chip: null, search: null };
   const gitInfo = new Map(); // project.path -> git snapshot (branch / hash / dirty)
+  const stackInfo = new Map();
   const processStats = new Map(); // project.path -> {running, pid, memory, cpu}
   let monitoredPath = null; // project.path currently polled by processMonitor
   let searchActive = false;
   let searchBuffer = '';
+  let gitModal = null;
 
   const colorFor = (project) => palette.get(project.path) || THEME.text;
 
@@ -314,13 +316,16 @@ function launchDashboard(config, options = {}) {
     });
 
     button.on('press', () => {
+      let handled = false;
       try {
-        onPress();
+        handled = onPress() === true;
       } catch (err) {
         setStatus(`Error: ${err.message}`);
       } finally {
-        projectList.focus();
-        screen.render();
+        if (!handled && !gitModal) {
+          projectList.focus();
+          screen.render();
+        }
       }
     });
     return button;
@@ -330,7 +335,7 @@ function launchDashboard(config, options = {}) {
   const BUTTON_SLOTS = new Map();
 
   /**
-   * 2-col x 4-row button grid nested inside the ACTIONS pane. Geometry is
+   * 2-col x 5-row button grid nested inside the ACTIONS pane. Geometry is
    * computed from the pane's exact row count so buttons never clip borders,
    * even on an 80x24 terminal.
    */
@@ -338,9 +343,12 @@ function launchDashboard(config, options = {}) {
     const button = makeButton({ content, ...opts });
     BUTTON_SLOTS.set(button, slot);
     const inner = Math.max(1, actionsHeight - 2);
-    const rowH = Math.max(1, Math.floor(inner / 4));
-    const pad = Math.max(0, Math.floor((inner - 4 * rowH) / 2));
-    button.top = 1 + pad + slot.row * rowH;
+    const regularRowH = Math.max(1, Math.floor(inner / 4));
+    const rowH = slot.row < 4 ? regularRowH : 1;
+    const used = 4 * regularRowH + 1;
+    const pad = Math.max(0, Math.floor((inner - used) / 2));
+    const topOffset = slot.row < 4 ? slot.row * regularRowH : 4 * regularRowH;
+    button.top = 1 + pad + topOffset;
     button.height = rowH;
     button.left = slot.col === 0 ? '2%' : '52%';
     button.width = '46%';
@@ -356,6 +364,7 @@ function launchDashboard(config, options = {}) {
   addButton('freebuff', { row: 2, col: 1 }, `{bold}[f]{/bold} ${AGENT_LABELS.freebuff}`, { fg: STATUS_FG.exp, onPress: () => openTool('freebuff') });
   addButton('kilocode', { row: 3, col: 0 }, `{bold}[k]{/bold} ${AGENT_LABELS.kilocode}`, { fg: '#cba6f7', onPress: () => openTool('kilocode') });
   addButton('status', { row: 3, col: 1 }, '{bold}[s]{/bold} Change status', { fg: STATUS_FG.pend, onPress: () => cycleStatus() });
+  addButton('git', { row: 4, col: 0 }, '{bold}[g]{/bold} Git commit & push ▸ git', { fg: '#89b4fa', onPress: openGitCommitModal });
 
   // Created after the buttons so tab-focus order is list -> actions -> output.
   const logBox = contrib.log({
@@ -557,7 +566,7 @@ function launchDashboard(config, options = {}) {
       ` {${THEME.textDim}-fg}Status:{/${THEME.textDim}-fg} ${statusChip}  {${THEME.textDim}-fg}Branch:{/${THEME.textDim}-fg} {${STATUS_FG.live}-fg}${escapeBraces(truncate(branch, 30))}{/${STATUS_FG.live}-fg}${dirtyLabel}`,
       ` {${THEME.textDim}-fg}Dev port:{/${THEME.textDim}-fg} ${project.port || '\u2014'}   {${THEME.textDim}-fg}PID:{/${THEME.textDim}-fg} ${pidLabel}`,
       ` {${THEME.textDim}-fg}Package mgr:{/${THEME.textDim}-fg} ${escapeBraces(String(project.packageManager || '\u2014'))}`,
-      ` {${THEME.textDim}-fg}Stack:{/${THEME.textDim}-fg} ${escapeBraces(truncate(project.stack || '\u2014', inner - 12))}`,
+      ` {${THEME.textDim}-fg}Stack:{/${THEME.textDim}-fg} ${escapeBraces(truncate(getProjectStack(project), inner - 12))}`,
       ` {${THEME.textDim}-fg}Mem/CPU:{/${THEME.textDim}-fg} ${memCpu}`,
       ` {${THEME.textDim}-fg}Last commit:{/${THEME.textDim}-fg} ${escapeBraces(truncate(commit, inner - 16))}`,
       devStateLine(project, state),
@@ -648,6 +657,181 @@ function launchDashboard(config, options = {}) {
   /* ---------------------------------------------------------------- *
    * Actions
    * ---------------------------------------------------------------- */
+
+  function getProjectStack(project) {
+    if (!project) return '\u2014';
+    if (project.stack) return project.stack;
+    if (config.demoMode) return '\u2014';
+    if (!stackInfo.has(project.path)) stackInfo.set(project.path, detectStack(project.path));
+    return stackInfo.get(project.path) || '\u2014';
+  }
+
+  function refreshProjectStack(project) {
+    if (!project || config.demoMode || project.stack) return;
+    const stack = detectStack(project.path);
+    stackInfo.set(project.path, stack);
+    if (selectedProject() === project) updateCard();
+  }
+
+  function openGitCommitModal() {
+    const project = selectedProject();
+    if (!project) return false;
+    if (gitModal) {
+      gitModal.textbox.focus();
+      return true;
+    }
+
+    let generated;
+    try {
+      generated = generateCommitMessage(project.path);
+    } catch (_) {
+      generated = 'Update project files';
+    }
+    if (generated === null) {
+      appendLog(project, `{${STATUS_FG.exp}-fg}⚠ No changes to commit.{/${STATUS_FG.exp}-fg}`, 'system');
+      setStatus(`${project.name}: No changes to commit.`);
+      return true;
+    }
+
+    const width = Math.max(32, Math.min(72, screen.cols - 4));
+    const height = Math.max(10, Math.min(14, screen.rows - 4));
+    const modal = blessed.box({
+      parent: screen,
+      top: 'center',
+      left: 'center',
+      width,
+      height,
+      tags: true,
+      keys: true,
+      border: { type: 'line', fg: THEME.border },
+      style: { bg: THEME.surface, fg: THEME.text },
+    });
+    modal.setLabel(' Git Commit Message ');
+    blessed.text({
+      parent: modal,
+      top: 1,
+      left: 2,
+      width: width - 4,
+      height: 1,
+      tags: true,
+      content: 'Press Enter to commit & push, Esc to cancel',
+      style: { fg: THEME.textDim },
+    });
+    const textbox = blessed.textbox({
+      parent: modal,
+      top: 3,
+      left: 2,
+      width: width - 4,
+      height: Math.max(3, height - 7),
+      keys: true,
+      mouse: true,
+      value: generated || 'Update project files',
+      style: {
+        fg: THEME.text,
+        bg: THEME.surface,
+        focus: { fg: THEME.text, bg: '#282838' },
+      },
+    });
+    const hint = blessed.text({
+      parent: modal,
+      bottom: 1,
+      left: 2,
+      width: width - 4,
+      height: 1,
+      tags: true,
+      content: "Press 'a' to auto-generate, or edit manually. Enter to commit, Esc to cancel.",
+      style: { fg: THEME.textDim },
+    });
+
+    const originalListener = textbox._listener;
+    textbox._listener = function(ch, key) {
+      if ((key.name === 'a' || key.name === 'A') && !key.ctrl && !key.meta) {
+        let next;
+        try {
+          next = generateCommitMessage(project.path);
+        } catch (_) {
+          next = 'Update project files';
+        }
+        if (next === null) {
+          appendLog(project, `{${STATUS_FG.exp}-fg}⚠ No changes to commit.{/${STATUS_FG.exp}-fg}`, 'system');
+          hint.setContent("Press 'a' to auto-generate, or edit manually. Enter to commit, Esc to cancel.");
+        } else {
+          textbox.setValue(next || 'Update project files');
+          hint.setContent("Auto-generated. Press 'a' to regenerate, or edit manually. Enter to commit, Esc to cancel.");
+        }
+        screen.render();
+        return;
+      }
+      return originalListener.call(this, ch, key);
+    };
+
+    function closeGitModal() {
+      if (!gitModal) return;
+      gitModal = null;
+      try { modal.destroy(); } catch (_) {}
+      try { projectList.focus(); } catch (_) {}
+      try { screen.render(); } catch (_) {}
+    }
+
+    function finish(value) {
+      closeGitModal();
+      if (value == null) {
+        setStatus(`${project.name}: Git commit cancelled.`);
+        return;
+      }
+      const message = String(value).trim();
+      if (!message) {
+        appendLog(project, `{${STATUS_FG.exp}-fg}⚠ Commit message cannot be empty.{/${STATUS_FG.exp}-fg}`, 'system');
+        setStatus(`${project.name}: Commit message cannot be empty.`);
+        return;
+      }
+      setImmediate(() => runGitCommit(project, message));
+    }
+
+    textbox.on('submit', finish);
+    textbox.on('cancel', () => finish(null));
+    gitModal = { modal, textbox, close: closeGitModal };
+    textbox.readInput();
+    screen.render();
+    return true;
+  }
+
+  function runGitCommit(project, message) {
+    logView.followTail();
+    appendLog(project, `{#89b4fa-fg}[git]{/#89b4fa-fg} committing and pushing…`, 'system');
+    let result;
+    try {
+      result = commitAndPush(project.path, message, {
+        onOutput: (line, stream) => appendLog(project, line, stream),
+      });
+    } catch (err) {
+      appendLog(project, `{#f38ba8-fg}✗ Git operation failed: ${escapeBraces(err.message)}{/#f38ba8-fg}`, 'system');
+      setStatus(`${project.name}: Git operation failed: ${err.message}`);
+      refreshProjectGit(project, { force: true });
+      return;
+    }
+
+    if (result.warning) {
+      appendLog(project, `{${STATUS_FG.exp}-fg}⚠ ${escapeBraces(result.warning)}{/${STATUS_FG.exp}-fg}`, 'system');
+      setStatus(`${project.name}: ${result.warning}`);
+      return;
+    }
+    if (!result.ok) {
+      appendLog(project, `{#f38ba8-fg}✗ ${escapeBraces(result.error)}{/#f38ba8-fg}`, 'system');
+      setStatus(`${project.name}: ${result.error}`);
+      refreshProjectGit(project, { force: true });
+      return;
+    }
+
+    const fileCount = result.fileCount || 1;
+    appendLog(
+      project,
+      `{${STATUS_FG.live}-fg}✓ [git] Committed and pushed ${fileCount} files: "${escapeBraces(result.message)}"{/${STATUS_FG.live}-fg}`,
+      'system'
+    );
+    setStatus(`${project.name}: committed and pushed.`);
+    refreshProjectGit(project, { force: true });
+  }
 
   function startDevServer() {
     const project = selectedProject();
@@ -771,6 +955,7 @@ function launchDashboard(config, options = {}) {
   }
 
   function destroy() {
+    if (gitModal) gitModal.close();
     if (status.timer) clearTimeout(status.timer);
     if (status.quitTimer) clearTimeout(status.quitTimer);
     if (status.clock) clearInterval(status.clock);
@@ -807,9 +992,10 @@ function launchDashboard(config, options = {}) {
    * Git / process-monitor refresh on selection
    * ---------------------------------------------------------------- */
 
-  function refreshProjectGit(project) {
+  function refreshProjectGit(project, { force = false } = {}) {
     if (!project || config.demoMode) return;
-    const info = getGitInfo(project.path);
+    refreshProjectStack(project);
+    const info = getGitInfo(project.path, { force });
     gitInfo.set(project.path, info);
     if (selectedProject() === project) {
       refreshList();
@@ -868,6 +1054,7 @@ function launchDashboard(config, options = {}) {
   screen.key(['o'], () => { if (!searchActive) openTool('opencode'); });
   screen.key(['f'], () => { if (!searchActive) openTool('freebuff'); });
   screen.key(['k'], () => { if (!searchActive) openTool('kilocode'); });
+  screen.key(['g'], () => { if (!searchActive) openGitCommitModal(); });
   screen.key(['S-x'], () => { if (!searchActive) stopDevServer(); });
   screen.key(['j'], () => { if (!searchActive) projectList.down(1); });
   screen.key(['tab'], () => { if (!searchActive) screen.focusNext(); });

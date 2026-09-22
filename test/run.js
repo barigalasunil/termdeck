@@ -727,6 +727,113 @@ test('the auto-updater is hard-wired to the termdeck-cli package', () => {
 
 const projectManager = require('../src/projectManager');
 
+test('detectStack maps JavaScript dependencies and caches the result', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'termdeck-stack-'));
+  try {
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+      dependencies: { next: '14', react: '18', tailwindcss: '3' },
+      devDependencies: { typescript: '5', vite: '5' },
+    }));
+    projectManager.clearStackCache();
+    assert.strictEqual(projectManager.detectStack(root), 'Next.js, React, Tailwind, TypeScript, Vite');
+    assert.strictEqual(projectManager.detectStack(root), 'Next.js, React, Tailwind, TypeScript, Vite');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('detectStack uses language markers when there is no package manifest', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'termdeck-stack-fallback-'));
+  try {
+    fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nname = \"demo\"');
+    projectManager.clearStackCache();
+    assert.strictEqual(projectManager.detectStack(root), 'Rust');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('generateCommitMessage describes staged changes and common patterns', () => {
+  const fakeGit = (args) => {
+    if (args[0] === 'diff' && args.includes('--cached')) {
+      return ' src/dashboard.js | 3 ++-\n src/config.js | 2 +-\n README.md | 1 +';
+    }
+    return null;
+  };
+  assert.strictEqual(
+    projectManager.generateCommitMessage('/fake', { git: fakeGit }),
+    'Modified 3 files: src/dashboard.js, src/config.js, README.md (source code, docs)'
+  );
+});
+
+test('generateCommitMessage creates a smart dependencies and docs message', () => {
+  const fakeGit = () => ' package.json | 2 +-\n README.md | 1 +';
+  assert.strictEqual(
+    projectManager.generateCommitMessage('/fake', { git: fakeGit }),
+    'chore: update dependencies and docs (package.json, README.md)'
+  );
+});
+
+test('generateCommitMessage handles many files and clean repositories', () => {
+  const many = () => [
+    ' src/a.js | 1 +',
+    ' src/b.js | 1 +',
+    ' lib/c.js | 1 +',
+    ' lib/d.js | 1 +',
+    ' test/e.js | 1 +',
+    ' test/f.js | 1 +',
+  ].join('\n');
+  assert.strictEqual(
+    projectManager.generateCommitMessage('/many', { git: many }),
+    'Updated 6 files across src, lib, test (source code)'
+  );
+  assert.strictEqual(projectManager.generateCommitMessage('/clean', { git: () => '' }), null);
+  assert.strictEqual(
+    projectManager.generateCommitMessage('/untracked', {
+      git: (args) => (args[0] === 'ls-files' ? 'new.js' : ''),
+    }),
+    'Update new.js'
+  );
+  assert.strictEqual(projectManager.generateCommitMessage('/offline', { git: () => null }), 'Update project files');
+});
+
+test('commitAndPush runs add, commit, and push sequentially', () => {
+  const calls = [];
+  const fakeGit = (args) => {
+    calls.push(args.slice());
+    if (args[0] === 'status') return 'M src/a.js';
+    if (args[0] === 'add' || args[0] === 'commit' || args[0] === 'push') return '';
+    if (args[0] === 'diff' && args.includes('--name-only')) return 'src/a.js';
+    return null;
+  };
+  const result = projectManager.commitAndPush('/fake', 'feat: update dashboard', { git: fakeGit });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.fileCount, 1);
+  assert.deepStrictEqual(calls.map((args) => args.slice(0, 2)), [
+    ['status', '--porcelain'],
+    ['add', '.'],
+    ['commit', '-m'],
+    ['push'],
+    ['diff', '--name-only'],
+  ]);
+});
+
+test('commitAndPush reports no changes and push failures', () => {
+  assert.strictEqual(
+    projectManager.commitAndPush('/clean', 'feat: nothing', { git: () => '' }).warning,
+    'No changes to commit.'
+  );
+  const fakeGit = (args) => {
+    if (args[0] === 'status') return 'M src/a.js';
+    if (args[0] === 'add' || args[0] === 'commit') return '';
+    if (args[0] === 'push') return { status: 1, stdout: '', stderr: '! [rejected] main -> origin/main (fetch first)' };
+    return null;
+  };
+  const result = projectManager.commitAndPush('/fake', 'feat: push', { git: fakeGit });
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.error.includes('rejected (fetch first)'));
+});
+
 test('getGitInfo returns branch/hash/message/dirty from a fake git runner', () => {
   const fakeGit = (args, cwd) => {
     if (args[0] === 'rev-parse' && args.includes('--is-inside-work-tree')) return 'true';
