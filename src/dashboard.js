@@ -39,7 +39,7 @@ const { LogView } = require('./logView');
 const { MODERN_STATUSES, loadConfig, loadConfigFromPath, displayPath, saveConfig } = require('./config');
 const { escapeBraces, truncate, formatTimestamp, timestamp, timeAgo } = require('./util');
 const { getGitInfo, detectStack, generateCommitMessage, commitAndPush } = require('./projectManager');
-const { launchAgent, tailAgentLog, stopAllAgents } = require('./agentManager');
+const { launchAgent, tailAgentLog, stopAllAgents, activeTails } = require('./agentManager');
 const { startMonitoring, stopMonitoring, stopAllMonitoring } = require('./processMonitor');
 
 const LAYOUT = { rows: 12, cols: 12, headerHeight: 6, footerHeight: 2 };
@@ -540,9 +540,9 @@ function launchDashboard(config, options = {}) {
 
   function updateHeader() {
     clockLabel.setContent(` ${h24Time()}`);
-    const busy = servers.runningCount > 0;
+    const busy = servers.runningCount > 0 || activeTails() > 0;
     daemonLabel.setContent(busy
-      ? `{${STATUS_FG.live}-fg}● DAEMON ON{/${STATUS_FG.live}-fg}`
+      ? `{${STATUS_FG.live}-fg}\u25cf DAEMON ON{/${STATUS_FG.live}-fg}`
       : `{${THEME.textDim}-fg}\u25cb DAEMON OFF{/${THEME.textDim}-fg}`);
 
     chipData().forEach((chip, index) => {
