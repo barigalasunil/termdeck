@@ -186,25 +186,45 @@ function launchDashboard(config, options = {}) {
     el.style.label = { fg: THEME.textDim };
     el.style.fg = THEME.text;
     el.style.bg = THEME.bg;
-    if (label) el.setLabel(label);
+    if (label) {
+      el.headerLabel = label;
+      el.setLabel(label);
+    }
     return el;
   }
 
-  /**
-   * Right-aligned header text drawn on a pane's top border, using the same
-   * top:-1 trick blessed uses for its own left labels. Tags are parsed, so the
-   * right header can carry its own colors (e.g. green "STREAM ACTIVE").
+/**
+   * Right-aligned header text drawn on a pane's top border. Has to be a direct
+   * screen child: blessed refuses to lay out top:-1 children of scrollable
+   * panes (projectList/card/logBox are all scrollable), so a pane-relative
+   * label would never paint. Position is derived from the pane's own geometry.
+   * Returns { widget, refresh(labelText) } so callers can re-evaluate whether the
+   * header still fits (the OUTPUT pane's label grows when logs are paused).
    */
   function paneHeaderRight(parent, content, fg = THEME.textDim) {
-    return blessed.text({
-      parent,
-      top: -1,
-      right: 1,
+    const pct = (v, fb) => {
+      const m = /^(\d+(?:\.\d+)?)%$/.exec(String(v));
+      return m ? parseFloat(m[1]) : fb;
+    };
+    const visible = String(content).replace(/\{[^{}]*\}/g, '').length;
+    const paneWidth = pct(parent.options.width, 0);
+    const position = `${(pct(parent.options.left, 0) + paneWidth).toFixed(2)}%-${visible + 1}`;
+    const widget = blessed.text({
+      parent: screen,
+      top: parent.options.top,
+      left: position,
       height: 1,
       tags: true,
       content,
       style: { fg, bg: 'transparent' },
     });
+    widget.refresh = (labelText) => {
+      const labelLen = String(labelText != null ? labelText : parent.headerLabel || '').replace(/\{[^{}]*\}/g, '').length;
+      const px = Math.round((paneWidth / 100) * screen.width);
+      widget.hidden = visible + 1 > px - labelLen - 4;
+    };
+    widget.refresh();
+    return widget;
   }
 
   // Two-strip header: a 3-row masthead (clock | TERMDECK box | daemon) above a
@@ -473,15 +493,16 @@ function launchDashboard(config, options = {}) {
     border: { type: 'line', fg: THEME.border },
     style: { bg: THEME.surface, item: { fg: THEME.text }, selected: { fg: THEME.text, bg: '#313244' } },
   });
-  panel(logBox, ' OUTPUT (dev server / agents)  autoscroll [ON] ');
-  paneHeaderRight(logBox, ` BUFFER: 1024L {${STATUS_FG.live}-fg}STREAM ACTIVE{/${STATUS_FG.live}-fg} `);
+  panel(logBox, ' OUTPUT (dev server / agents) [ON] ');
+  const bufferHeader = paneHeaderRight(logBox, ` BUFFER: 1024L {${STATUS_FG.live}-fg}STREAM ACTIVE{/${STATUS_FG.live}-fg} `);
 
   const logView = new LogView(logBox, {
     maxLines: 800,
     flushInterval: 120,
     viewportHeight: () => Math.max(1, (typeof logBox.height === 'number' ? logBox.height : screen.rows) - 2),
     onChange: () => screen.render(),
-    label: ' OUTPUT (dev server / agents)  autoscroll [ON] ',
+    onLabelChange: (label) => bufferHeader.refresh(label),
+    label: ' OUTPUT (dev server / agents) [ON] ',
   });
 
   /* ---------------------------------------------------------------- *
@@ -677,6 +698,7 @@ function launchDashboard(config, options = {}) {
     gitHeader.setContent(dirtyNow
       ? `{#f38ba8-fg}GIT: DIRTY{/#f38ba8-fg}`
       : `{#a6e3a1-fg}GIT: CLEAN{/#a6e3a1-fg}`);
+    card.headerLabel = ` DETAILS: ${project.name} `;
 
     // Visual cue while the status is unknown: red button asking to be set.
     if (unknown) {

@@ -26,6 +26,7 @@ class LogView {
    * @param {number} [options.flushInterval] ms between repaints
    * @param {function} [options.viewportHeight] visible row count (used to clamp scrolling)
    * @param {function} [options.onChange]    called after the widget changed
+   * @param {function} [options.onLabelChange] called with the new text whenever the pane label is rewritten
    * @param {string}   [options.label]       base label
    */
   constructor(widget, options = {}) {
@@ -34,6 +35,7 @@ class LogView {
     this.flushInterval = options.flushInterval || 100;
     this.viewportHeight = options.viewportHeight || (() => (typeof widget.height === 'number' ? widget.height - 2 : 10));
     this.onChange = options.onChange || (() => {});
+    this.onLabelChange = options.onLabelChange || (() => {});
     this.baseLabel = options.label || ' logs ';
 
     this.lines = [];
@@ -183,6 +185,7 @@ class LogView {
     if (label !== this.lastLabel) {
       this.lastLabel = label;
       this.widget.setLabel(label);
+      this.onLabelChange(label);
     }
   }
 
