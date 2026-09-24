@@ -104,6 +104,11 @@ async function main() {
     await waitFor(() => rendered > 0, 4000, 'screen output');
     assert.ok(rendered > 0, 'screen produced output');
     assert.strictEqual(widgets.projectList.items.length, 2, 'two project rows');
+    assert.ok(widgets.header, 'header widget exists');
+    assert.strictEqual(widgets.title, widgets.header, 'title aliases the header (banner box)');
+    const bannerText = widgets.header.getContent();
+    assert.ok(bannerText.includes('\u2584\u2584\u2584\u2584\u2584\u2584\u2584'), 'banner top row present in header');
+    assert.strictEqual([...bannerText.split('\n')[0]].length, 63, 'banner row 0 is 63 cols');
     const firstRow = widgets.projectList.ritems[0];
     assert.ok(firstRow.includes('fake-app'), firstRow);
     assert.ok(firstRow.includes('{#a6e3a1-fg}●{/#a6e3a1-fg}'), firstRow);

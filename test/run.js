@@ -1214,6 +1214,12 @@ test('runAutoUpdate stays silent (no install) when already up to date', async ()
   }
 });
 
+test('LAYOUT mirrors the 8-row banner header', () => {
+  const { LAYOUT } = require('../src/dashboard');
+  assert.strictEqual(LAYOUT.headerHeight, 8, 'headerHeight');
+  assert.strictEqual(LAYOUT.footerHeight, 2, 'footerHeight unchanged');
+});
+
 /* ------------------------------------------------------------------ *
  * runner
  * ------------------------------------------------------------------ */

@@ -7,9 +7,10 @@
  * exactly the rows it needs, with zero gaps between panes:
  *
  *   +-------------------------------------------------------------------+
- *   | 15:14:19        +------------+          ● DAEMON ON               |
- *   |                 | TERMDECK   |                                    |
- *   |                 +------------+                                    |
+ *   | 15:14:19                                          ● DAEMON ON      |
+ *   |                (4-line ASCII TERMDECK banner, centered            |
+ *   |                 columns 0-62, rows 1-4 of the 5-row masthead)      |
+ *   |                                                                    |
  *   | [ALL 14] [LIVE 6] [EXP 4] …               /search (regex) [box]   |
  *   +---------------------------------+---------------------------------+
  *   | PROJECTS (14)                   | DETAILS: hyperion-core          |
@@ -42,7 +43,7 @@ const { getGitInfo, detectStack, generateCommitMessage, commitAndPush } = requir
 const { launchAgent, tailAgentLog, stopAllAgents, activeTails } = require('./agentManager');
 const { startMonitoring, stopMonitoring, stopAllMonitoring } = require('./processMonitor');
 
-const LAYOUT = { rows: 12, cols: 12, headerHeight: 6, footerHeight: 2 };
+const LAYOUT = { rows: 12, cols: 12, headerHeight: 8, footerHeight: 2 };
 
 /* ------------------------------------------------------------------ *
  * Theme — dark, modern palette, pastel status tags, thin borders.
@@ -227,13 +228,18 @@ function launchDashboard(config, options = {}) {
     return widget;
   }
 
-  // Two-strip header: a 3-row masthead (clock | TERMDECK box | daemon) above a
-  // 3-row chips strip (status chips | search box). updateHeader() is the only
-  // renderer that mutates these.
-  const TITLE_TEXT = 'T E R M D E C K';
-  const LOGO_GREEN = '#00ff00';
-  const HEADER_ROWS = 6;
-  const CHIP_STRIP_TOP = 3;
+  // Two-strip header: a 5-row masthead (row 0 clock + daemon, rows 1-4 the
+  // centered ASCII banner) above a 3-row chips strip. updateHeader() is the
+  // only renderer that mutates the dynamic parts.
+  const BANNER = [
+    '\u2584\u2584\u2584\u2584\u2584\u2584\u2584 \u2584\u2584\u2584\u2584\u2584\u2584\u2584 \u2584\u2584\u2584\u2584\u2584\u2584\u2584 \u2584\u2584\u2584\u2584\u2584\u2584\u2584 \u2584\u2584\u2584\u2584\u2584\u2584  \u2584\u2584\u2584\u2584\u2584\u2584\u2584 \u2584\u2584\u2584\u2584\u2584\u2584\u2584 \u2584\u2584\u2584\u2584\u2584\u2584\u2584',
+    '\u2588\u2584\u2584 \u2584\u2584\u2588 \u2588 \u2584\u2584\u2584\u2584\u2588 \u2588 \u2584\u2584\u2584\u2584\u2588 \u2588 \u2584 \u2584 \u2588 \u2588 \u2584\u2584 \u2580\u2588 \u2588 \u2584\u2584\u2584\u2584\u2588 \u2588 \u2584\u2584\u2584\u2584\u2588 \u2588 \u2588\u2580 \u2584\u2588',
+    '  \u2588 \u2588   \u2588 \u2584\u2584\u2584\u2588\u2584 \u2588 \u2584 \u2584\u2584\u2588 \u2588 \u2588 \u2588 \u2588 \u2588 \u2588\u2584\u2580 \u2588 \u2588 \u2584\u2584\u2584\u2588\u2584 \u2588 \u2588\u2584\u2584\u2584\u2584 \u2588 \u2584 \u2580\u2588\u2584',
+    '  \u2588\u2584\u2588   \u2588\u2584\u2584\u2584\u2584\u2584\u2588 \u2588\u2584\u2588\u2584\u2584\u2584\u2588 \u2588\u2584\u2588\u2580\u2588\u2584\u2588 \u2588\u2584\u2584\u2584\u2584\u2588\u2580 \u2588\u2584\u2584\u2584\u2584\u2584\u2588 \u2588\u2584\u2584\u2584\u2584\u2584\u2588 \u2588\u2584\u2588\u2588\u2584\u2584\u2588',
+  ].join('\n');
+  const BANNER_FG = '#AAAAAA';
+  const HEADER_ROWS = 8;
+  const CHIP_STRIP_TOP = 5;
   const CHIP_ORDER = ['all', 'live', 'exp', 'pend', 'unknown', 'scrap'];
   const CHIP_LABELS = { all: 'ALL', live: 'LIVE', exp: 'EXP', pend: 'PEND', unknown: 'UNKNOWN', scrap: 'SCRAP' };
   const CHIP_WIDTHS = { all: 8, live: 8, exp: 8, pend: 8, unknown: 12, scrap: 11 };
@@ -250,14 +256,14 @@ function launchDashboard(config, options = {}) {
     top: 0,
     left: 0,
     width: '100%',
-    height: 3,
+    height: 5,
     tags: true,
     style: { bg: THEME.bg, fg: THEME.text },
   });
 
   const clockLabel = blessed.text({
     parent: masthead,
-    top: 1,
+    top: 0,
     left: 1,
     height: 1,
     tags: true,
@@ -267,21 +273,20 @@ function launchDashboard(config, options = {}) {
 
   const titleBox = blessed.box({
     parent: masthead,
-    top: 0,
-    left: 'center',
-    width: TITLE_TEXT.length + 2,
-    height: 3,
+    top: 1,
+    left: 0,
+    width: '100%',
+    height: 4,
     tags: true,
     align: 'center',
-    valign: 'middle',
-    border: { type: 'line', fg: LOGO_GREEN },
-    style: { fg: LOGO_GREEN, bold: true, bg: THEME.bg },
-    content: TITLE_TEXT,
+    valign: 'top',
+    content: BANNER,
+    style: { fg: BANNER_FG, bg: THEME.bg },
   });
 
   const daemonLabel = blessed.text({
     parent: masthead,
-    top: 1,
+    top: 0,
     right: 1,
     height: 1,
     tags: true,
