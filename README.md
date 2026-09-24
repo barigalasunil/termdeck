@@ -124,7 +124,7 @@ You can override any agent's command per project via the `agents` map in your co
 
 ## 📸 Screenshots
 
-<!-- TODO: Add screenshot of the dashboard -->
+![Termdeck dashboard](./assets/demo-dashboard.png)
 
 The UI is a **dark theme with green accents** (a green line-bordered masthead and green "live" indicators) laid out in a **3-pane layout showing projects, details, and live logs**.
 
