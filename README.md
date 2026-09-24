@@ -1,6 +1,11 @@
 <div align="center">
 
-# 🖥️ termdeck — Terminal Project Control Dashboard
+```text
+▄▄▄▄▄▄▄ ▄▄▄▄▄▄▄ ▄▄▄▄▄▄▄ ▄▄▄▄▄▄▄ ▄▄▄▄▄▄  ▄▄▄▄▄▄▄ ▄▄▄▄▄▄▄ ▄▄▄▄▄▄▄
+█▄▄ ▄▄█ █ ▄▄▄▄█ █ ▄▄▄▄█ █ ▄ ▄ █ █ ▄▄ ▀█ █ ▄▄▄▄█ █ ▄▄▄▄█ █ █▀ ▄█
+  █ █   █ ▄▄▄█▄ █ ▄ ▄▄█ █ █ █ █ █ █▄▀ █ █ ▄▄▄█▄ █ █▄▄▄▄ █ ▄ ▀█▄
+  █▄█   █▄▄▄▄▄█ █▄█▄▄▄█ █▄█▀█▄█ █▄▄▄▄█▀ █▄▄▄▄▄█ █▄▄▄▄▄█ █▄██▄▄█
+```
 
 **A beautiful, multi-pane TUI dashboard for managing your local development projects.**
 
