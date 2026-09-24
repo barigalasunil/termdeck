@@ -341,7 +341,7 @@ function launchDashboard(config, options = {}) {
   const footerHeight = 2;                      // bordered footer box
   const bodyHeight = Math.max(6, screen.rows - bodyTop - footerHeight);
   // Bordered buttons need 5 rows x 3 cells (15) + border(2) + label-row(0). When the
-  // window is too short (80x24 → body 16), the grid collapses to 1-line chips.
+  // window is too short (80x24 → body 14), the grid collapses to 1-line chips.
   const large = bodyHeight >= 29;
   const actionsHeight = large ? 18 : 8;        // border(2) + grid(5x3 or 5x1)
   const outputHeight = Math.max(3, Math.min(large ? 6 : 4, bodyHeight - actionsHeight - (large ? 8 : 5)));
